@@ -27,7 +27,12 @@ import {
   Lock,
   Heart
 } from 'lucide-react';
-
+import {
+  sendParentOtp,
+  verifyParentOtp,
+  getParentByEmail,
+  createParentProfile,
+} from '../lib/samasmDatabase';
 interface AuthScreenProps {
   profiles: UserProfile[];
   parents: ParentProfile[];
@@ -78,6 +83,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   );
   const [parentLoginEmail, setParentLoginEmail] = useState('');
   const [parentLoginError, setParentLoginError] = useState('');
+  const [parentOtpSent, setParentOtpSent] = useState(false);
+  const [parentOtp, setParentOtp] = useState('');
+  const [parentAuthLoading, setParentAuthLoading] = useState(false);
   const [parentRegName, setParentRegName] = useState('');
   const [parentRegEmail, setParentRegEmail] = useState('');
   const [parentChildrenList, setParentChildrenList] = useState<Array<{ name: string; packCode: string }>>([
@@ -166,77 +174,76 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   // ----------------------------------------------------
   // Parent Handlers
   // ----------------------------------------------------
-  const handleParentLoginSubmit = (e: React.FormEvent) => {
+  const handleParentLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setParentLoginError('');
+  
     if (!parentLoginEmail.trim() || !parentLoginEmail.includes('@')) {
       setParentLoginError('يرجى إدخال بريد إلكتروني صالح');
       playTryAgain();
       return;
     }
-
+  
     const cleanEmail = parentLoginEmail.trim().toLowerCase();
-    const matchedParent = parents.find((p) => p.email.toLowerCase() === cleanEmail);
-
-    if (matchedParent) {
+  
+    try {
+      setParentAuthLoading(true);
+  
+      // الخطوة الأولى: إرسال كود التحقق
+      if (!parentOtpSent) {
+        await sendParentOtp(cleanEmail);
+        setParentOtpSent(true);
+        playSuccessWhistle();
+        return;
+      }
+  
+      // الخطوة الثانية: التحقق من الكود
+      if (!parentOtp.trim()) {
+        setParentLoginError('يرجى إدخال كود التحقق المرسل إلى بريدك الإلكتروني');
+        playTryAgain();
+        return;
+      }
+  
+      const authResult = await verifyParentOtp(cleanEmail, parentOtp);
+  
+      const authUser = authResult.user;
+  
+      if (!authUser) {
+        setParentLoginError('تعذر إنشاء جلسة تسجيل الدخول. حاول مرة أخرى.');
+        playTryAgain();
+        return;
+      }
+  
+      // البحث عن ملف ولي الأمر الموجود في قاعدة البيانات
+      let parent = await getParentByEmail(cleanEmail);
+  
+      // إنشاء الملف لأول مرة إذا لم يكن موجوداً
+      if (!parent) {
+        await createParentProfile(
+          authUser.id,
+          'ولي أمر',
+          cleanEmail
+        );
+        parent = await getParentByEmail(cleanEmail);
+      }
+  
+      if (!parent) {
+        setParentLoginError('تم تسجيل الدخول ولكن تعذر تحميل ملف ولي الأمر.');
+        playTryAgain();
+        return;
+      }
+  
       playSuccessWhistle();
-      onParentLogin(matchedParent);
-    } else {
+      onParentLogin(parent);
+    } catch (error: any) {
+      console.error(error);
       setParentLoginError(
-        `لم نعثر على حساب ولي أمر مسجل بالبريد "${parentLoginEmail}". يرجى التسجيل وربط أطفالك عبر تبويب "تسجيل جديد وربط الأبناء".`
+        error?.message || 'حدث خطأ أثناء تسجيل الدخول. حاول مرة أخرى.'
       );
       playTryAgain();
+    } finally {
+      setParentAuthLoading(false);
     }
-  };
-
-  const handleAddChildRow = () => {
-    playPop();
-    setParentChildrenList((prev) => [...prev, { name: '', packCode: '' }]);
-  };
-
-  const handleRemoveChildRow = (index: number) => {
-    playClick();
-    setParentChildrenList((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleChildRowChange = (index: number, field: 'name' | 'packCode', value: string) => {
-    setParentChildrenList((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
-    );
-  };
-
-  const handleParentRegisterSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setParentRegError('');
-
-    if (!parentRegEmail.trim() || !parentRegEmail.includes('@')) {
-      setParentRegError('يرجى إدخال بريد إلكتروني صالح لولي الأمر');
-      playTryAgain();
-      return;
-    }
-
-    // Validate at least one valid child
-    const validChildren = parentChildrenList
-      .map((c) => ({
-        name: c.name.trim(),
-        packCode: c.packCode.trim().toUpperCase(),
-      }))
-      .filter((c) => c.packCode.length > 0);
-
-    if (validChildren.length === 0) {
-      setParentRegError('يرجى كتابة كود واسم طفل واحد على الأقل لربطه بحسابك');
-      playTryAgain();
-      return;
-    }
-
-    playSuccessWhistle();
-    onRegisterParentWithChildren(
-      {
-        name: parentRegName.trim() || 'ولي أمر',
-        email: parentRegEmail.trim().toLowerCase(),
-      },
-      validChildren
-    );
   };
 
   // ----------------------------------------------------
@@ -760,40 +767,78 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               {/* PARENT TAB 1: LOGIN */}
               {parentTab === 'login' && (
                 <form onSubmit={handleParentLoginSubmit} className="space-y-3.5">
-                  <div className="p-3 rounded-2xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-xs text-purple-900 dark:text-purple-200 leading-relaxed font-bold">
-                    أهلاً بك في بوابة متابعة الأبناء! سجّل ببريدك الإلكتروني لاستعراض نشاط وتطور أطفالك فوراً.
-                  </div>
-
+                <div className="p-3 rounded-2xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-xs text-purple-900 dark:text-purple-200 leading-relaxed font-bold">
+                  أهلاً بك في بوابة متابعة الأبناء! سجّل ببريدك الإلكتروني لاستعراض نشاط وتطور أطفالك فوراً.
+                </div>
+              
+                <div>
+                  <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+                    البريد الإلكتروني لولي الأمر:
+                  </label>
+              
+                  <input
+                    type="email"
+                    value={parentLoginEmail}
+                    onChange={(e) => {
+                      setParentLoginEmail(e.target.value);
+                      setParentLoginError('');
+                    }}
+                    placeholder="parent@example.com"
+                    dir="ltr"
+                    className="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
+                    required
+                    disabled={parentAuthLoading}
+                  />
+                </div>
+              
+                {parentOtpSent && (
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                      البريد الإلكتروني لولي الأمر:
+                      كود التحقق المرسل إلى بريدك الإلكتروني:
                     </label>
+              
                     <input
-                      type="email"
-                      value={parentLoginEmail}
-                      onChange={(e) => setParentLoginEmail(e.target.value)}
-                      placeholder="parent@example.com"
+                      type="text"
+                      value={parentOtp}
+                      onChange={(e) => {
+                        setParentOtp(
+                          e.target.value.replace(/\D/g, '').slice(0, 8)
+                        );
+                        setParentLoginError('');
+                      }}
+                      placeholder="12345678"
                       dir="ltr"
-                      className="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
-                      required
+                      inputMode="numeric"
+                      maxLength={8}
+                      autoComplete="one-time-code"
+                      className="w-full px-3.5 py-2.5 rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center tracking-[0.4em] text-sm"
+                      disabled={parentAuthLoading}
                     />
                   </div>
-
-                  {parentLoginError && (
-                    <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span>{parentLoginError}</span>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <GraduationCap className="w-4 h-4" />
-                    <span>دخول لوحة متابعة الأبناء 👨‍👩‍👧‍👦</span>
-                  </button>
-                </form>
+                )}
+              
+                {parentLoginError && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{parentLoginError}</span>
+                  </div>
+                )}
+              
+                <button
+                  type="submit"
+                  disabled={parentAuthLoading}
+                  className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <GraduationCap className="w-4 h-4" />
+                  <span>
+                    {parentAuthLoading
+                      ? 'جاري المعالجة...'
+                      : parentOtpSent
+                        ? 'تأكيد كود التحقق 🔐'
+                        : 'إرسال كود التحقق 📧'}
+                  </span>
+                </button>
+              </form>
               )}
 
               {/* PARENT TAB 2: REGISTER & LINK CHILDREN */}

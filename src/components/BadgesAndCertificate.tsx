@@ -794,7 +794,7 @@ export const BadgesAndCertificate: React.FC<BadgesAndCertificateProps> = ({ acti
                         lineHeight: '1.2',
                       }}
                     >
-                      <span>{isGirl ? 'البطلة الرائعة / ' : 'البطل الرائع / '}</span>
+                      <span>{isGirl ? 'البطلة الرائعة / ' : 'البطل الرائع/ة / '}</span>
                       <span style={{ color: currentTheme.highlightColorHex }}>{activeProfile.name}</span>
                     </div>
 
