@@ -7,20 +7,6 @@ import {
   updateChildProfileInDb, 
   testSupabaseConnection 
 } from './lib/samasmDatabase';
-import { 
-  getStoredProfiles, 
-  saveProfiles, 
-  getActiveProfileId, 
-  setActiveProfileId, 
-  getStoredDarkMode, 
-  saveStoredDarkMode,
-  getStoredParents,
-  saveStoredParents,
-  getActiveParentId,
-  setActiveParentId,
-  getStoredActiveRole,
-  saveStoredActiveRole
-} from './utils/storage';
 import { SoundProvider, useSound } from './context/SoundContext';
 import { Navbar } from './components/Navbar';
 import { AuthScreen } from './components/AuthScreen';
@@ -37,46 +23,50 @@ import { Shield, Heart, LogOut, Sun, Moon, Volume2, VolumeX } from 'lucide-react
 
 function AppContent() {
   // Profiles (Students / Children)
-  const [profiles, setProfiles] = useState<UserProfile[]>(() => getStoredProfiles());
-  const [activeProfileId, setActiveProfileIdState] = useState<string | null>(() => getActiveProfileId());
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [activeProfileId, setActiveProfileIdState] = useState<string | null>(null);
 
   // Parents
-  const [parents, setParents] = useState<ParentProfile[]>(() => getStoredParents());
-  const [activeParentId, setActiveParentIdState] = useState<string | null>(() => getActiveParentId());
+  const [parents, setParents] = useState<ParentProfile[]>([]);
+  const [activeParentId, setActiveParentIdState] = useState<string | null>(null);
 
   // Active Role: 'child' | 'parent' | 'admin' | null
-  const [activeRole, setActiveRoleState] = useState<UserRole | null>(() => getStoredActiveRole());
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => Boolean(getStoredActiveRole()));
+  const [activeRole, setActiveRoleState] = useState<UserRole | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
 
   // Admin authentication state
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => getStoredActiveRole() === 'admin');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
 
   // Child App Tabs
   const [currentTab, setCurrentTab] = useState<'challenge' | 'badges' | 'lab' | 'games'>('challenge');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => getStoredDarkMode());
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
   const { playClick, isMuted, toggleSound } = useSound();
 
   // ----------------------------------------------------
-  // 🌐 Supabase Integration & Initial Load
+  // 🌐 Supabase Integration & Direct Database Sync
   // ----------------------------------------------------
   useEffect(() => {
     // 1. اختبار اتصال قاعدة البيانات
     testSupabaseConnection().then((result) => {
       if (result.success) {
-        console.log('✅ Supabase متصل بنجاح مع Vercel!', result.data);
+        console.log('✅ Supabase متصل بنجاح!', result.data);
       } else {
         console.error('❌ خطأ في الاتصال بـ Supabase:', result.error);
       }
     });
 
-    // 2. جلب جميع الحسابات (الأبطال) من Supabase لتسميع البيانات عبر الأجهزة
-    async function loadAllOnlineProfiles() {
+    // 2. جلب الحسابات (الأبطال وأولياء الأمور) من Supabase مباشرة
+    async function loadAllOnlineData() {
       try {
-        const { data, error } = await supabase.from('user_profiles').select('*');
-        if (data && !error && data.length > 0) {
-          const onlineProfiles: UserProfile[] = data.map((p: any) => ({
+        // جلب الأبطال
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('user_profiles')
+          .select('*');
+
+        if (profilesData && !profilesError) {
+          const onlineProfiles: UserProfile[] = profilesData.map((p: any) => ({
             id: p.id,
             name: p.name,
             packCode: p.pack_code || '',
@@ -93,16 +83,30 @@ function AppContent() {
             labPointsEarned: p.lab_points_earned ?? 0,
             createdAt: p.created_at,
           }));
-
           setProfiles(onlineProfiles);
-          saveProfiles(onlineProfiles);
+        }
+
+        // جلب أولياء الأمور
+        const { data: parentsData, error: parentsError } = await supabase
+          .from('parents')
+          .select('*');
+
+        if (parentsData && !parentsError) {
+          const onlineParents: ParentProfile[] = parentsData.map((p: any) => ({
+            id: p.id,
+            name: p.name || 'ولي أمر',
+            email: p.email || '',
+            linkedPackCodes: p.linked_pack_codes || [],
+            createdAt: p.created_at,
+          }));
+          setParents(onlineParents);
         }
       } catch (err) {
-        console.error('Failed to sync online profiles from Supabase:', err);
+        console.error('Failed to sync data directly from Supabase:', err);
       }
     }
 
-    loadAllOnlineProfiles();
+    loadAllOnlineData();
   }, []);
 
   // Dark Mode Sync with DOM
@@ -114,7 +118,6 @@ function AppContent() {
       document.documentElement.classList.remove('dark');
       document.documentElement.style.colorScheme = 'light';
     }
-    saveStoredDarkMode(isDarkMode);
   }, [isDarkMode]);
 
   const toggleDarkMode = () => {
@@ -127,9 +130,7 @@ function AppContent() {
   // ----------------------------------------------------
   const handleSelectProfile = (id: string) => {
     setActiveProfileIdState(id);
-    setActiveProfileId(id);
     setActiveRoleState('child');
-    saveStoredActiveRole('child');
     setIsLoggedIn(true);
     setCurrentTab('challenge');
   };
@@ -138,8 +139,8 @@ function AppContent() {
     const newProfile: UserProfile = {
       ...data,
       id: 'hero-' + Date.now(),
-      points: 20, // Welcome points
-      unlockedBadgeIds: ['curiosity_spark'], // First badge
+      points: 20,
+      unlockedBadgeIds: ['curiosity_spark'],
       lastSolvedDate: null,
       solvedChallengesCount: 0,
       solvedCategories: [],
@@ -149,50 +150,37 @@ function AppContent() {
     // حفظ الطفل في Supabase أونلاين
     await createChildProfileInDb(newProfile, activeParentId || undefined);
 
-    const updated = [...profiles, newProfile];
-    setProfiles(updated);
-    saveProfiles(updated);
+    setProfiles((prev) => [...prev, newProfile]);
     setActiveProfileIdState(newProfile.id);
-    setActiveProfileId(newProfile.id);
     setActiveRoleState('child');
-    saveStoredActiveRole('child');
     setIsProfileModalOpen(false);
     setIsLoggedIn(true);
     setCurrentTab('challenge');
   };
 
-  const handleDeleteProfile = (id: string) => {
-    const updated = profiles.filter((p) => p.id !== id);
-    setProfiles(updated);
-    saveProfiles(updated);
-    if (activeProfileId === id) {
-      const nextActive = updated.length > 0 ? updated[0].id : null;
-      setActiveProfileIdState(nextActive);
-      if (nextActive) {
-        setActiveProfileId(nextActive);
-      } else {
-        handleLogout();
+  const handleDeleteProfile = async (id: string) => {
+    try {
+      await supabase.from('user_profiles').delete().eq('id', id);
+      const updated = profiles.filter((p) => p.id !== id);
+      setProfiles(updated);
+      if (activeProfileId === id) {
+        const nextActive = updated.length > 0 ? updated[0].id : null;
+        setActiveProfileIdState(nextActive);
+        if (!nextActive) handleLogout();
       }
+    } catch (err) {
+      console.error('Error deleting profile:', err);
     }
   };
 
   const handleUpdateActiveProfile = async (updated: UserProfile) => {
-    const updatedList = profiles.map((p) => (p.id === updated.id ? updated : p));
-    setProfiles(updatedList);
-    saveProfiles(updatedList);
-
-    // تحديث تقدم الطفل في Supabase أونلاين فوراً
+    setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    // تحديث تقدم الطفل في Supabase مباشرة
     await updateChildProfileInDb(updated.id, updated);
   };
 
   const handleUpdateAllProfiles = (updatedList: UserProfile[]) => {
     setProfiles(updatedList);
-    saveProfiles(updatedList);
-    if (activeProfileId && !updatedList.some((p) => p.id === activeProfileId)) {
-      const nextId = updatedList.length > 0 ? updatedList[0].id : null;
-      setActiveProfileIdState(nextId);
-      if (nextId) setActiveProfileId(nextId);
-    }
   };
 
   // ----------------------------------------------------
@@ -201,17 +189,13 @@ function AppContent() {
   const handleParentLogin = (parent: ParentProfile) => {
     setParents((prevParents) => {
       const exists = prevParents.some((p) => p.id === parent.id || p.email.toLowerCase() === parent.email.toLowerCase());
-      const updatedList = exists 
+      return exists 
         ? prevParents.map((p) => (p.id === parent.id || p.email.toLowerCase() === parent.email.toLowerCase() ? parent : p))
         : [...prevParents, parent];
-      saveStoredParents(updatedList);
-      return updatedList;
     });
 
     setActiveParentIdState(parent.id);
-    setActiveParentId(parent.id);
     setActiveRoleState('parent');
-    saveStoredActiveRole('parent');
     setIsLoggedIn(true);
   };
 
@@ -245,14 +229,12 @@ function AppContent() {
           createdAt: new Date().toISOString(),
         };
 
-        // رفع الطفل الجديد لـ Supabase
         await createChildProfileInDb(newChildProfile);
         updatedProfilesList.push(newChildProfile);
       }
     }
 
     setProfiles(updatedProfilesList);
-    saveProfiles(updatedProfilesList);
 
     const newParent: ParentProfile = {
       id: 'parent-' + Date.now(),
@@ -262,31 +244,26 @@ function AppContent() {
       createdAt: new Date().toISOString(),
     };
 
-    const updatedParentsList = [...parents, newParent];
-    setParents(updatedParentsList);
-    saveStoredParents(updatedParentsList);
+    // حفظ ولي الأمر في Supabase
+    await supabase.from('parents').insert([{
+      id: newParent.id,
+      name: newParent.name,
+      email: newParent.email,
+      linked_pack_codes: newParent.linkedPackCodes
+    }]);
 
+    setParents((prev) => [...prev, newParent]);
     setActiveParentIdState(newParent.id);
-    setActiveParentId(newParent.id);
     setActiveRoleState('parent');
-    saveStoredActiveRole('parent');
     setIsLoggedIn(true);
   };
 
   const handleUpdateParent = (updated: ParentProfile) => {
-    const updatedList = parents.map((p) => (p.id === updated.id ? updated : p));
-    setParents(updatedList);
-    saveStoredParents(updatedList);
+    setParents((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   };
 
   const handleUpdateAllParents = (updatedList: ParentProfile[]) => {
     setParents(updatedList);
-    saveStoredParents(updatedList);
-    if (activeParentId && !updatedList.some((p) => p.id === activeParentId)) {
-      const nextId = updatedList.length > 0 ? updatedList[0].id : null;
-      setActiveParentIdState(nextId);
-      if (nextId) setActiveParentId(nextId);
-    }
   };
 
   useEffect(() => {
@@ -318,7 +295,6 @@ function AppContent() {
   const handleAdminLogin = () => {
     setIsAdminAuthenticated(true);
     setActiveRoleState('admin');
-    saveStoredActiveRole('admin');
     setIsLoggedIn(true);
   };
 
@@ -329,7 +305,6 @@ function AppContent() {
     playClick();
     setIsLoggedIn(false);
     setActiveRoleState(null);
-    saveStoredActiveRole(null);
     setIsAdminAuthenticated(false);
   };
 
@@ -465,7 +440,7 @@ function AppContent() {
   return (
     <div className="min-h-screen flex flex-col font-sans transition-colors duration-300 bg-linear-to-b from-amber-50/80 via-pink-50/50 to-sky-50/60 dark:from-slate-950 dark:via-indigo-950 dark:to-slate-900 text-slate-900 dark:text-slate-100">
       
-      {/* Navigation Bar - Admin button hidden for children */}
+      {/* Navigation Bar */}
       <Navbar
         activeProfile={activeProfile}
         onOpenProfileModal={() => setIsProfileModalOpen(true)}
@@ -484,7 +459,6 @@ function AppContent() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-8">
-        {/* Personalized Motivational Quote Banner */}
         <MotivationalQuoteCard
           activeProfile={activeProfile}
           currentTab={currentTab}
@@ -521,7 +495,7 @@ function AppContent() {
         )}
       </main>
 
-      {/* Child Footer (No Admin / Parent references) */}
+      {/* Child Footer */}
       <footer className="border-t-2 border-pink-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 mt-10 py-6 sm:py-8 shadow-xs transition-colors">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-5 text-center md:text-right">
           
