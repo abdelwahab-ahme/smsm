@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, Gender, ParentProfile } from '../types';
 import { useSound } from '../context/SoundContext';
 import { verifyAdminEmail, verifyAdminPin } from '../utils/storage';
+import { supabase } from '../lib/supabase';
 import confetti from 'canvas-confetti';
 import { 
   Sparkles, 
@@ -19,7 +20,8 @@ import {
   KeyRound, 
   Plus, 
   Trash2, 
-  Lock
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import {
   sendParentOtp,
@@ -46,7 +48,7 @@ interface AuthScreenProps {
 const AVATAR_OPTIONS = ['👦', '👧', '🍭', '🚀', '🧠', '🌟', '🦁', '🐱', '🔬', '🎨', '⚡', '👑'];
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
-  profiles,
+  profiles: initialProfiles,
   parents,
   onSelectProfile,
   onCreateProfile,
@@ -56,13 +58,55 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   isDarkMode,
   onToggleDarkMode,
 }) => {
-  // 1. Primary Role Selection: 'child' | 'parent' | 'admin'
+  // 🌐 Online Profiles State
+  const [profiles, setProfiles] = useState<UserProfile[]>(initialProfiles);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    setProfiles(initialProfiles);
+  }, [initialProfiles]);
+
+  // دالة لجلب الحسابات أونلاين مباشرة
+  const refreshOnlineProfiles = async () => {
+    setIsRefreshing(true);
+    try {
+      const { data, error } = await supabase.from('user_profiles').select('*');
+      if (data && !error) {
+        const fetchedProfiles: UserProfile[] = data.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          packCode: p.pack_code || '',
+          gender: p.gender || 'boy',
+          avatar: p.avatar || '👦',
+          points: p.points ?? 20,
+          unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
+          lastSolvedDate: p.last_solved_date,
+          solvedChallengesCount: p.solved_challenges_count ?? 0,
+          solvedCategories: p.solved_categories || [],
+          retryCount: p.retry_count ?? 0,
+          mathSpeedHighScore: p.math_speed_high_score ?? 0,
+          wheelSpinsCount: p.wheel_spins_count ?? 0,
+          labPointsEarned: p.lab_points_earned ?? 0,
+          createdAt: p.created_at,
+        }));
+        setProfiles(fetchedProfiles);
+      }
+    } catch (err) {
+      console.error('Error fetching online profiles:', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshOnlineProfiles();
+  }, []);
+
+  // Primary Role Selection: 'child' | 'parent' | 'admin'
   const [selectedRole, setSelectedRole] = useState<'child' | 'parent' | 'admin'>('child');
 
   // Child Tab State
-  const [childTab, setChildTab] = useState<'login' | 'register'>(
-    profiles.length > 0 ? 'login' : 'register'
-  );
+  const [childTab, setChildTab] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
   const [packCode, setPackCode] = useState('');
   const [email, setEmail] = useState('');
@@ -96,9 +140,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   const { isMuted, toggleSound, playClick, playPop, playBadgeUnlock, playTryAgain, playSuccessWhistle } = useSound();
 
-  // ----------------------------------------------------
   // Child Handlers
-  // ----------------------------------------------------
   const handleGenderChange = (newGender: Gender) => {
     playClick();
     setGender(newGender);
@@ -117,7 +159,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
     if (!packCode.trim()) {
-      setRegError('يرجى إدخال كود الطفل في الموقع (المكتوب على كيس سماسم)!');
+      setRegError('يرجى إدخال كود الطفل في الموقع!');
       playTryAgain();
       return;
     }
@@ -165,9 +207,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  // ----------------------------------------------------
   // Parent Handlers
-  // ----------------------------------------------------
   const handleParentLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setParentLoginError('');
@@ -230,7 +270,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         error?.message || 'حدث خطأ أثناء تسجيل الدخول. حاول مرة أخرى.'
       );
       playTryAgain();
-    } finally {
+    } font-mono finally {
       setParentAuthLoading(false);
     }
   };
@@ -278,9 +318,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     playSuccessWhistle();
   };
 
-  // ----------------------------------------------------
   // Admin Handlers
-  // ----------------------------------------------------
   const handleVerifyAdminEmail = (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError('');
@@ -500,20 +538,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       <Smartphone className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
                       <div className="text-right">
                         <span className="text-[11px] font-bold block text-slate-500 dark:text-slate-400">
-                          الحسابات المسجلة من هذا الجهاز:
+                          الحسابات المتاحة أونلاين:
                         </span>
                         <span className="text-xs font-black text-purple-950 dark:text-white">
                           {profiles.length > 0 ? (
-                            <>تم حفظ <strong className="font-mono text-purple-700 dark:text-purple-300">{profiles.length}</strong> حساب على جهازك</>
+                            <>يوجد <strong className="font-mono text-purple-700 dark:text-purple-300">{profiles.length}</strong> حساب بطل جاهز للدخول</>
                           ) : (
-                            'لا توجد حسابات مسجلة على جهازك حالياً'
+                            'جاري التحقق من الحسابات أونلاين...'
                           )}
                         </span>
                       </div>
                     </div>
-                    <span className="w-7 h-7 rounded-full bg-purple-600 text-white text-xs font-black flex items-center justify-center font-mono shrink-0">
-                      {profiles.length}
-                    </span>
+
+                    <button
+                      onClick={refreshOnlineProfiles}
+                      disabled={isRefreshing}
+                      className="p-2 rounded-xl bg-purple-100 dark:bg-purple-900/60 hover:bg-purple-200 text-purple-700 dark:text-purple-300 transition-colors cursor-pointer flex items-center justify-center"
+                      title="تحديث البيانات أونلاين"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    </button>
                   </div>
 
                   <form onSubmit={handleDirectChildLogin} className="space-y-2">
@@ -596,7 +640,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <div className="text-center py-6 space-y-2.5">
                       <div className="text-3xl">📱</div>
                       <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
-                        لم يتم تسجيل أي بطل على هذا الجهاز بعد.
+                        لا توجد حسابات أبطال مسجلة حتى الآن.
                       </p>
                       <button
                         onClick={() => {
@@ -767,11 +811,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   }`}
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>تسجيل جديد مع أطفالك</span>
+                  <span>تسجيل جديد لولي الأمر</span>
                 </button>
               </div>
 
-              {/* PARENT LOGIN */}
               {parentTab === 'login' && (
                 <form onSubmit={handleParentLoginSubmit} className="space-y-3">
                   <div>
@@ -783,11 +826,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         type="email"
                         value={parentLoginEmail}
                         onChange={(e) => setParentLoginEmail(e.target.value)}
-                        placeholder="example@mail.com"
-                        disabled={parentOtpSent || parentAuthLoading}
-                        dir="ltr"
-                        className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
+                        placeholder="parent@example.com"
+                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
                         required
+                        disabled={parentOtpSent}
                       />
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                     </div>
@@ -796,26 +838,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   {parentOtpSent && (
                     <div>
                       <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                        رمز التحقق (OTP):
+                        كود التحقق المرسل إلى بريدك:
                       </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={parentOtp}
-                          onChange={(e) => setParentOtp(e.target.value)}
-                          placeholder="ادخل الكود المرسل لبريدك"
-                          disabled={parentAuthLoading}
-                          dir="ltr"
-                          className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-xs sm:text-sm tracking-widest text-center"
-                          required
-                        />
-                        <KeyRound className="w-4 h-4 text-purple-500 absolute left-3 top-3" />
-                      </div>
+                      <input
+                        type="text"
+                        value={parentOtp}
+                        onChange={(e) => setParentOtp(e.target.value)}
+                        placeholder="123456"
+                        className="w-full px-3.5 py-2.5 rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center text-sm"
+                        required
+                      />
                     </div>
                   )}
 
                   {parentLoginError && (
-                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
                       {parentLoginError}
                     </p>
                   )}
@@ -823,14 +860,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <button
                     type="submit"
                     disabled={parentAuthLoading}
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer disabled:opacity-50"
+                    className="w-full py-3 px-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer flex items-center justify-center gap-2"
                   >
-                    {parentAuthLoading ? 'جاري المعالجة...' : parentOtpSent ? 'تأكيد ودخول 🔓' : 'إرسال كود التحقق ✉️'}
+                    {parentAuthLoading ? (
+                      <span>جاري المعالجة...</span>
+                    ) : parentOtpSent ? (
+                      <span>تأكيد الدخول 🔑</span>
+                    ) : (
+                      <span>إرسال كود التحقق ✉️</span>
+                    )}
                   </button>
                 </form>
               )}
 
-              {/* PARENT REGISTER WITH CHILDREN */}
               {parentTab === 'register' && (
                 <form onSubmit={handleParentRegisterSubmit} className="space-y-3">
                   <div>
@@ -841,7 +883,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       type="text"
                       value={parentRegName}
                       onChange={(e) => setParentRegName(e.target.value)}
-                      placeholder="مثال: د. محمد علي"
+                      placeholder="مثال: أ. محمد أحمد"
                       className="w-full px-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
                       required
                     />
@@ -856,59 +898,54 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       value={parentRegEmail}
                       onChange={(e) => setParentRegEmail(e.target.value)}
                       placeholder="parent@example.com"
-                      dir="ltr"
-                      className="w-full px-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs"
+                      className="w-full px-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
                       required
                     />
                   </div>
 
-                  <div className="space-y-2 border-t pt-3 border-slate-200 dark:border-slate-800">
+                  <div className="space-y-2 border-t pt-2 border-slate-200 dark:border-slate-800">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-black text-purple-900 dark:text-purple-300">
-                        أطفالك المربوطين بالحساب:
-                      </label>
+                      <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                        ربط الأبناء والطلب بولي الأمر:
+                      </span>
                       <button
                         type="button"
                         onClick={handleAddChildToParentReg}
-                        className="text-[11px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-2 py-1 rounded-xl flex items-center gap-1 cursor-pointer"
+                        className="text-[11px] font-black text-purple-600 dark:text-purple-400 flex items-center gap-1 cursor-pointer"
                       >
-                        <Plus className="w-3 h-3" />
-                        <span>إضافة طفل</span>
+                        <Plus className="w-3.5 h-3.5" /> إضافة طفل
                       </button>
                     </div>
 
-                    {parentChildrenList.map((child, index) => (
-                      <div key={index} className="flex items-center gap-1.5 bg-purple-50/50 dark:bg-slate-800/40 p-2 rounded-2xl border border-purple-100 dark:border-slate-800">
+                    {parentChildrenList.map((c, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
                         <input
                           type="text"
-                          value={child.name}
+                          placeholder="اسم الطفل"
+                          value={c.name}
                           onChange={(e) => {
                             const updated = [...parentChildrenList];
-                            updated[index].name = e.target.value;
+                            updated[idx].name = e.target.value;
                             setParentChildrenList(updated);
                           }}
-                          placeholder="اسم الطفل"
-                          className="w-1/2 px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold"
-                          required
+                          className="w-1/2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold"
                         />
                         <input
                           type="text"
-                          value={child.packCode}
+                          placeholder="كود الكيس (SMSM-7701)"
+                          value={c.packCode}
                           onChange={(e) => {
                             const updated = [...parentChildrenList];
-                            updated[index].packCode = e.target.value.toUpperCase();
+                            updated[idx].packCode = e.target.value.toUpperCase();
                             setParentChildrenList(updated);
                           }}
-                          placeholder="كود الكيس"
-                          dir="ltr"
-                          className="w-1/2 px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono font-bold"
-                          required
+                          className="w-1/2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono font-bold"
                         />
                         {parentChildrenList.length > 1 && (
                           <button
                             type="button"
-                            onClick={() => handleRemoveChildFromParentReg(index)}
-                            className="p-1.5 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-950 rounded-lg cursor-pointer"
+                            onClick={() => handleRemoveChildFromParentReg(idx)}
+                            className="text-rose-500 hover:text-rose-700"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -918,16 +955,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
 
                   {parentRegError && (
-                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
                       {parentRegError}
                     </p>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
+                    className="w-full py-3 px-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
-                    إنشاء حساب ولي الأمر والأبناء 🎉
+                    إنشاء وربط الحسابات 🚀
                   </button>
                 </form>
               )}
@@ -937,23 +974,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {/* ROLE 3: ADMIN VIEW */}
           {selectedRole === 'admin' && (
             <div className="space-y-4">
-              <div className="text-center space-y-1 mb-3">
-                <div className="w-12 h-12 bg-red-100 dark:bg-red-950/60 rounded-2xl flex items-center justify-center mx-auto text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800">
-                  <Shield className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-black text-slate-900 dark:text-white">
-                  لوحة تحكم مدير النظام
-                </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  يرجى تأكيد هوية المسؤول للوصول للوحة الإدارة
-                </p>
+              <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 flex items-center gap-2 text-red-950 dark:text-red-200">
+                <Lock className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+                <span className="text-xs font-black">
+                  منطقة خاصة بمدير النظام والمسؤولين فقط 🔒
+                </span>
               </div>
 
               {!isAdminEmailVerified ? (
                 <form onSubmit={handleVerifyAdminEmail} className="space-y-3">
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                      البريد الإلكتروني للمسؤول:
+                      بريد المسؤول (Admin Email):
                     </label>
                     <div className="relative">
                       <input
@@ -961,8 +993,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         value={adminEmailInput}
                         onChange={(e) => setAdminEmailInput(e.target.value)}
                         placeholder="admin@samasm.com"
-                        dir="ltr"
-                        className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
+                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
                         required
                       />
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -970,14 +1001,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
 
                   {adminError && (
-                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
                       {adminError}
                     </p>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
+                    className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
                     التحقق من البريد 🔍
                   </button>
@@ -986,34 +1017,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <form onSubmit={handleAdminPinSubmit} className="space-y-3">
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                      رمز PIN الخاص بالإدارة:
+                      الرمز السري الخاص بالمسؤول (PIN):
                     </label>
                     <div className="relative">
                       <input
                         type="password"
                         value={adminPinInput}
                         onChange={(e) => setAdminPinInput(e.target.value)}
-                        placeholder="••••••••"
-                        maxLength={15}
-                        dir="ltr"
-                        className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-red-300 dark:border-red-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center text-sm tracking-widest"
+                        placeholder="••••"
+                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border-2 border-red-300 dark:border-red-800 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-center tracking-widest text-base"
                         required
                       />
-                      <Lock className="w-4 h-4 text-red-500 absolute left-3 top-3" />
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
                     </div>
                   </div>
 
                   {adminError && (
-                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
                       {adminError}
                     </p>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
+                    className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
-                    الدخول للوحة التحكم 🚀
+                    فتح لوحة تحكم المسؤول 🔓
                   </button>
                 </form>
               )}
@@ -1023,12 +1052,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="max-w-4xl w-full mx-auto text-center pt-4">
-        <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400">
-          جميع الحقوق محفوظة © سماسم 2026
+      {/* Footer text */}
+      <div className="max-w-4xl w-full mx-auto text-center py-2">
+        <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+          صُنع بحب لأبطال وبطلات المعرفة ❤️ سماسم 2026
         </p>
-      </footer>
+      </div>
 
     </div>
   );
