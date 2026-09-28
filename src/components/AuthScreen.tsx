@@ -270,7 +270,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         error?.message || 'حدث خطأ أثناء تسجيل الدخول. حاول مرة أخرى.'
       );
       playTryAgain();
-    } font-mono finally {
+    }  finally {
       setParentAuthLoading(false);
     }
   };
