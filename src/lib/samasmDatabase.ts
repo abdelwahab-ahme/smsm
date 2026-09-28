@@ -1,11 +1,10 @@
 import { supabase } from './supabase';
-import type { UserProfile, ParentProfile } from '../types';
+import type { UserProfile, ParentProfile, Gender } from '../types';
 
 /**
  * SAMASM DATABASE LAYER
  * ---------------------
- * كل التعامل مع Supabase هيكون من هنا.
- * لا نحذف LocalStorage في المرحلة الحالية.
+ * التعامل الكامل مع Supabase
  */
 
 // =========================
@@ -37,7 +36,7 @@ export async function getUserProfileByPackCode(
     gender: data.gender,
     avatar: data.avatar || '',
     points: data.points ?? 20,
-    unlockedBadgeIds: [],
+    unlockedBadgeIds: data.unlocked_badge_ids || [],
     lastSolvedDate: data.last_solved_date,
     solvedChallengesCount: data.solved_challenges_count ?? 0,
     retryCount: data.retry_count ?? 0,
@@ -49,7 +48,6 @@ export async function getUserProfileByPackCode(
   };
 }
 
-
 // =========================
 // CREATE USER PROFILE
 // =========================
@@ -58,18 +56,23 @@ export async function createUserProfile(
   profile: UserProfile,
   parentId?: string | null
 ) {
+  // توليد UUID فريد لمنع التعارض 409
+  const uniqueId = profile.id && !profile.id.startsWith('hero-') 
+    ? profile.id 
+    : crypto.randomUUID();
+
   const { data, error } = await supabase
     .from('user_profiles')
     .insert({
-      id: profile.id,
+      id: uniqueId,
       parent_id: parentId ?? null,
       name: profile.name,
       pack_code: profile.packCode,
       gender: profile.gender,
       avatar: profile.avatar,
-      points: profile.points,
-      solved_challenges_count: profile.solvedChallengesCount,
-      last_solved_date: profile.lastSolvedDate,
+      points: profile.points ?? 20,
+      solved_challenges_count: profile.solvedChallengesCount ?? 0,
+      last_solved_date: profile.lastSolvedDate ?? null,
       math_speed_high_score: profile.mathSpeedHighScore ?? 0,
       wheel_spins_count: profile.wheelSpinsCount ?? 0,
       lab_points_earned: profile.labPointsEarned ?? 0,
@@ -86,6 +89,50 @@ export async function createUserProfile(
   return data;
 }
 
+// =========================
+// CREATE CHILD PROFILE IN DB
+// =========================
+
+export async function createChildProfileInDb(
+  profileData: Partial<UserProfile> & { name: string; packCode: string; gender: Gender; avatar: string },
+  parentId?: string
+): Promise<UserProfile | null> {
+  try {
+    // 💡 التعديل الجوهري: استخدام crypto.randomUUID() يمنع خطأ 409 نهائياً
+    const generatedId = (profileData.id && profileData.id.includes('-') && !profileData.id.startsWith('hero-'))
+      ? profileData.id
+      : crypto.randomUUID();
+
+    const newChild = {
+      id: generatedId,
+      name: profileData.name,
+      pack_code: profileData.packCode,
+      gender: profileData.gender,
+      avatar: profileData.avatar,
+      points: profileData.points || 20,
+      parent_id: parentId || null,
+      created_at: new Date().toISOString()
+    };
+
+    console.log('--- DB Insert Payload ---', newChild);
+
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .insert([newChild])
+      .select();
+
+    if (error) {
+      console.error('❌ Supabase Insert Error:', error);
+      return null;
+    }
+
+    console.log('✅ Supabase Insert Success:', data);
+    return data ? (data[0] as unknown as UserProfile) : null;
+  } catch (err) {
+    console.error('❌ Unexpected error in createChildProfileInDb:', err);
+    return null;
+  }
+}
 
 // =========================
 // UPDATE USER PROFILE
@@ -144,9 +191,44 @@ export async function updateUserProfile(
   return data;
 }
 
+export async function updateChildProfileInDb(
+  profileId: string,
+  updates: Partial<UserProfile>
+): Promise<UserProfile | null> {
+  try {
+    const dbPayload: Record<string, any> = {};
+
+    if (updates.name !== undefined) dbPayload.name = updates.name;
+    if (updates.packCode !== undefined) dbPayload.pack_code = updates.packCode;
+    if (updates.gender !== undefined) dbPayload.gender = updates.gender;
+    if (updates.avatar !== undefined) dbPayload.avatar = updates.avatar;
+    if (updates.points !== undefined) dbPayload.points = updates.points;
+    if (updates.unlockedBadgeIds !== undefined) dbPayload.unlocked_badge_ids = updates.unlockedBadgeIds;
+    if (updates.lastSolvedDate !== undefined) dbPayload.last_solved_date = updates.lastSolvedDate;
+    if (updates.solvedChallengesCount !== undefined) dbPayload.solved_challenges_count = updates.solvedChallengesCount;
+    if (updates.solvedCategories !== undefined) dbPayload.solved_categories = updates.solvedCategories;
+
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update(dbPayload)
+      .eq('id', profileId)
+      .select();
+
+    if (error) {
+      console.error('❌ Error updating child profile in DB:', error.message);
+      return null;
+    }
+
+    console.log('✅ Supabase Profile Update Success:', data);
+    return data ? (data[0] as unknown as UserProfile) : null;
+  } catch (err) {
+    console.error('❌ Unexpected error in updateChildProfileInDb:', err);
+    return null;
+  }
+}
 
 // =========================
-// PARENTS
+// PARENTS & AUTH
 // =========================
 
 export async function getParentByEmail(
@@ -167,7 +249,6 @@ export async function getParentByEmail(
     return null;
   }
 
-  // Children will later be loaded through parent_id.
   return {
     id: data.id,
     name: data.name,
@@ -178,14 +259,171 @@ export async function getParentByEmail(
   };
 }
 
+export async function sendParentOtp(email: string) {
+  const cleanEmail = email.trim().toLowerCase();
+
+  const { data, error } = await supabase.auth.signInWithOtp({
+    email: cleanEmail,
+    options: {
+      shouldCreateUser: true,
+    },
+  });
+
+  if (error) {
+    console.error('Supabase Auth: failed to send parent OTP', error);
+    throw error;
+  }
+
+  return data;
+}
+
+export async function verifyParentOtp(
+  email: string,
+  token: string
+) {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanToken = token.trim();
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: cleanEmail,
+    token: cleanToken,
+    type: 'email',
+  });
+
+  if (error) {
+    console.error('Supabase Auth: failed to verify parent OTP', error);
+    throw error;
+  }
+
+  return data;
+}
+
+export async function getCurrentAuthUser() {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    console.error('Supabase Auth: failed to get current user', error);
+    return null;
+  }
+
+  return user;
+}
+
+export async function createParentProfile(
+  authUserId: string,
+  name: string,
+  email: string,
+  phone?: string
+) {
+  const { data, error } = await supabase
+    .from('parents')
+    .insert({
+      id: authUserId,
+      name: name.trim() || 'ولي أمر',
+      email: email.trim().toLowerCase(),
+      phone: phone?.trim() || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Supabase: failed to create parent profile', error);
+    throw error;
+  }
+
+  return data;
+}
+
+export async function getChildrenByParentId(parentId: string): Promise<UserProfile[]> {
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('parent_id', parentId);
+
+    if (error) {
+      console.error('Error fetching children for parent:', error.message);
+      return [];
+    }
+
+    return (data || []) as UserProfile[];
+  } catch (err) {
+    console.error('Unexpected error in getChildrenByParentId:', err);
+    return [];
+  }
+}
+
+export async function signOutSupabase() {
+  const { error } = await supabase.auth.signOut();
+
+  if (error) {
+    console.error('Supabase Auth: sign out failed', error);
+    throw error;
+  }
+}
 
 // =========================
-// HEALTH CHECK
+// CHALLENGES HISTORY
 // =========================
+
+export async function recordSolvedChallengeInDb(
+  profileId: string,
+  challengeId: string,
+  pointsEarned: number
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('user_challenges')
+      .insert([
+        {
+          user_id: profileId,
+          challenge_id: challengeId,
+          points_earned: pointsEarned,
+          completed_at: new Date().toISOString()
+        }
+      ]);
+
+    if (error) {
+      console.error('❌ Error recording challenge in DB:', error.message);
+      return false;
+    }
+
+    console.log('✅ Challenge completion recorded in Supabase successfully');
+    return true;
+  } catch (err) {
+    console.error('❌ Unexpected error in recordSolvedChallengeInDb:', err);
+    return false;
+  }
+}
+
+export async function getChildChallengesHistory(
+  profileId: string
+): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from('user_challenges')
+      .select('*')
+      .eq('user_id', profileId)
+      .order('completed_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ Error fetching child challenges history:', error.message);
+      return [];
+    }
+
+    return data || [];
+  } catch (err) {
+    console.error('❌ Unexpected error in getChildChallengesHistory:', err);
+    return [];
+  }
+}
 
 export async function testSupabaseConnection() {
   const { data, error } = await supabase
-    .from('daily_challenges')
+    .from('user_profiles')
     .select('id')
     .limit(1);
 
@@ -202,250 +440,3 @@ export async function testSupabaseConnection() {
     data,
   };
 }
-// =========================
-// PARENT AUTH
-// =========================
-
-export async function sendParentOtp(email: string) {
-    const cleanEmail = email.trim().toLowerCase();
-  
-    const { data, error } = await supabase.auth.signInWithOtp({
-      email: cleanEmail,
-      options: {
-        shouldCreateUser: true,
-      },
-    });
-  
-    if (error) {
-      console.error('Supabase Auth: failed to send parent OTP', error);
-      throw error;
-    }
-  
-    return data;
-  }
-  
-  
-  // =========================
-  // CURRENT AUTH SESSION
-  // =========================
-  
-  export async function getCurrentAuthUser() {
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
-  
-    if (error) {
-      console.error('Supabase Auth: failed to get current user', error);
-      return null;
-    }
-  
-    return user;
-  }
-  
-  
-  // =========================
-  // PARENT PROFILE
-  // =========================
-  
-  export async function createParentProfile(
-    authUserId: string,
-    name: string,
-    email: string,
-    phone?: string
-  ) {
-    const { data, error } = await supabase
-      .from('parents')
-      .insert({
-        id: authUserId,
-        name: name.trim() || 'ولي أمر',
-        email: email.trim().toLowerCase(),
-        phone: phone?.trim() || null,
-      })
-      .select()
-      .single();
-  
-    if (error) {
-      console.error('Supabase: failed to create parent profile', error);
-      throw error;
-    }
-  
-    return data;
-  }
-  
-  
-  // =========================
-  // SIGN OUT
-  // =========================
-  
-  export async function signOutSupabase() {
-    const { error } = await supabase.auth.signOut();
-  
-    if (error) {
-      console.error('Supabase Auth: sign out failed', error);
-      throw error;
-    }
-  }
-  // =========================
-// VERIFY PARENT OTP
-// =========================
-
-export async function verifyParentOtp(
-    email: string,
-    token: string
-  ) {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanToken = token.trim();
-  
-    const { data, error } = await supabase.auth.verifyOtp({
-      email: cleanEmail,
-      token: cleanToken,
-      type: 'email',
-    });
-  
-    if (error) {
-      console.error('Supabase Auth: failed to verify parent OTP', error);
-      throw error;
-    }
-  
-    return data;
-  }
-  export async function getChildrenByParentId(parentId: string): Promise<UserProfile[]> {
-    try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('parent_id', parentId);
-  
-      if (error) {
-        console.error('Error fetching children for parent:', error.message);
-        return [];
-      }
-  
-      return (data || []) as UserProfile[];
-    } catch (err) {
-      console.error('Unexpected error in getChildrenByParentId:', err);
-      return [];
-    }
-  }
-  export async function createChildProfileInDb(
-    profileData: Partial<UserProfile> & { name: string; packCode: string; gender: Gender; avatar: string },
-    parentId?: string
-  ): Promise<UserProfile | null> {
-    try {
-      const newChild = {
-        id: profileData.id || `hero-${Date.now()}`,
-        name: profileData.name,
-        pack_code: profileData.packCode,
-        gender: profileData.gender,
-        avatar: profileData.avatar,
-        points: profileData.points || 0,
-        parent_id: parentId || null,
-        created_at: new Date().toISOString()
-      };
-  
-      console.log('--- DB Insert Payload ---', newChild);
-  
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .insert([newChild])
-        .select();
-  
-      if (error) {
-        console.error('❌ Supabase Insert Error:', error);
-        return null;
-      }
-  
-      console.log('✅ Supabase Insert Success:', data);
-      return data ? (data[0] as unknown as UserProfile) : null;
-    } catch (err) {
-      console.error('❌ Unexpected error in createChildProfileInDb:', err);
-      return null;
-    }
-  }
-  export async function updateChildProfileInDb(
-    profileId: string,
-    updates: Partial<UserProfile>
-  ): Promise<UserProfile | null> {
-    try {
-      const dbPayload: Record<string, any> = {};
-  
-      if (updates.name !== undefined) dbPayload.name = updates.name;
-      if (updates.packCode !== undefined) dbPayload.pack_code = updates.packCode;
-      if (updates.gender !== undefined) dbPayload.gender = updates.gender;
-      if (updates.avatar !== undefined) dbPayload.avatar = updates.avatar;
-      if (updates.points !== undefined) dbPayload.points = updates.points;
-      if (updates.unlockedBadgeIds !== undefined) dbPayload.unlocked_badge_ids = updates.unlockedBadgeIds;
-      if (updates.lastSolvedDate !== undefined) dbPayload.last_solved_date = updates.lastSolvedDate;
-      if (updates.solvedChallengesCount !== undefined) dbPayload.solved_challenges_count = updates.solvedChallengesCount;
-      if (updates.solvedCategories !== undefined) dbPayload.solved_categories = updates.solvedCategories;
-  
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .update(dbPayload)
-        .eq('id', profileId)
-        .select();
-  
-      if (error) {
-        console.error('❌ Error updating child profile in DB:', error.message);
-        return null;
-      }
-  
-      console.log('✅ Supabase Profile Update Success:', data);
-      return data ? (data[0] as unknown as UserProfile) : null;
-    } catch (err) {
-      console.error('❌ Unexpected error in updateChildProfileInDb:', err);
-      return null;
-    }
-  }
-  export async function recordSolvedChallengeInDb(
-    profileId: string,
-    challengeId: string,
-    pointsEarned: number
-  ): Promise<boolean> {
-    try {
-      const { error } = await supabase
-        .from('user_challenges')
-        .insert([
-          {
-            user_id: profileId,
-            challenge_id: challengeId,
-            points_earned: pointsEarned,
-            completed_at: new Date().toISOString()
-          }
-        ]);
-  
-      if (error) {
-        console.error('❌ Error recording challenge in DB:', error.message);
-        return false;
-      }
-  
-      console.log('✅ Challenge completion recorded in Supabase successfully');
-      return true;
-    } catch (err) {
-      console.error('❌ Unexpected error in recordSolvedChallengeInDb:', err);
-      return false;
-    }
-  }
-  export async function getChildChallengesHistory(
-    profileId: string
-  ): Promise<any[]> {
-    try {
-      const { data, error } = await supabase
-        .from('user_challenges')
-        .select('*')
-        .eq('user_id', profileId)
-        .order('completed_at', { ascending: false });
-  
-      if (error) {
-        console.error('❌ Error fetching child challenges history:', error.message);
-        return [];
-      }
-  
-      return data || [];
-    } catch (err) {
-      console.error('❌ Unexpected error in getChildChallengesHistory:', err);
-      return [];
-    }
-  }
-  
