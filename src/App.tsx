@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, ParentProfile, UserRole } from './types';
 import { getChildrenByParentId, createChildProfileInDb, updateChildProfileInDb } from './lib/samasmDatabase';
+import { testSupabaseConnection } from './lib/samasmDatabase'; // تأكد من صحة المسار
 import { 
   getStoredProfiles, 
   saveProfiles, 
@@ -51,7 +52,16 @@ function AppContent() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => getStoredDarkMode());
 
   const { playClick, isMuted, toggleSound } = useSound();
-
+  useEffect(() => {
+    // تشغيل اختبار الاتصال تلقائياً عند فتح الموقع
+    testSupabaseConnection().then((result) => {
+      if (result.success) {
+        console.log('✅ Supabase متصل بنجاح مع Vercel!', result.data);
+      } else {
+        console.error('❌ خطأ في الاتصال بـ Supabase:', result.error);
+      }
+    });
+  }, []);
   // Dark Mode Sync with DOM
   useEffect(() => {
     if (isDarkMode) {
