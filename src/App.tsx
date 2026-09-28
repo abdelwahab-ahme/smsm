@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, ParentProfile, UserRole } from './types';
+import { getChildrenByParentId, createChildProfileInDb, updateChildProfileInDb } from './lib/samasmDatabase';
 import { 
   getStoredProfiles, 
   saveProfiles, 
@@ -26,7 +27,7 @@ import { GamifiedLearningZone } from './components/GamifiedLearningZone';
 import { ProfileModal } from './components/ProfileModal';
 import { MotivationalQuoteCard } from './components/MotivationalQuoteCard';
 import { WelcomeModal } from './components/WelcomeModal';
-import { Sparkles, Shield, Heart, Trophy, BookOpen, Compass, Award, LogOut, Sun, Moon, Volume2, VolumeX } from 'lucide-react';
+import { Shield, Heart, LogOut, Sun, Moon, Volume2, VolumeX } from 'lucide-react';
 
 function AppContent() {
   // Profiles (Students / Children)
@@ -38,7 +39,6 @@ function AppContent() {
   const [activeParentId, setActiveParentIdState] = useState<string | null>(() => getActiveParentId());
 
   // Active Role: 'child' | 'parent' | 'admin' | null
-  // When site first opens, user selects their role in AuthScreen
   const [activeRole, setActiveRoleState] = useState<UserRole | null>(() => getStoredActiveRole());
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => Boolean(getStoredActiveRole()));
 
@@ -50,7 +50,7 @@ function AppContent() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => getStoredDarkMode());
 
-  const { playClick, playSuccessWhistle, isMuted, toggleSound } = useSound();
+  const { playClick, isMuted, toggleSound } = useSound();
 
   // Dark Mode Sync with DOM
   useEffect(() => {
@@ -81,7 +81,7 @@ function AppContent() {
     setCurrentTab('challenge');
   };
 
-  const handleCreateProfile = (data: Omit<UserProfile, 'id' | 'points' | 'unlockedBadgeIds' | 'lastSolvedDate' | 'solvedChallengesCount' | 'createdAt'>) => {
+  const handleCreateProfile = async (data: Omit<UserProfile, 'id' | 'points' | 'unlockedBadgeIds' | 'lastSolvedDate' | 'solvedChallengesCount' | 'createdAt'>) => {
     const newProfile: UserProfile = {
       ...data,
       id: 'hero-' + Date.now(),
@@ -92,6 +92,9 @@ function AppContent() {
       solvedCategories: [],
       createdAt: new Date().toISOString(),
     };
+
+    // حفظ الطفل في Supabase إذا كان ولي الأمر مسجل الدخول
+    await createChildProfileInDb(newProfile, activeParentId || undefined);
 
     const updated = [...profiles, newProfile];
     setProfiles(updated);
@@ -120,10 +123,13 @@ function AppContent() {
     }
   };
 
-  const handleUpdateActiveProfile = (updated: UserProfile) => {
+  const handleUpdateActiveProfile = async (updated: UserProfile) => {
     const updatedList = profiles.map((p) => (p.id === updated.id ? updated : p));
     setProfiles(updatedList);
     saveProfiles(updatedList);
+
+    // تحديث تقدم الطفل في Supabase مباشرة
+    await updateChildProfileInDb(updated.id, updated);
   };
 
   const handleUpdateAllProfiles = (updatedList: UserProfile[]) => {
@@ -136,10 +142,21 @@ function AppContent() {
     }
   };
 
-  // ----------------------------------------------------
-  // Parent Handlers
+ // ----------------------------------------------------
+  // Parent Handlers (تصحيح وتحديث)
   // ----------------------------------------------------
   const handleParentLogin = (parent: ParentProfile) => {
+    // 1. ضمان إضافة أو تحديث ولي الأمر في القائمة الحالية والمخزنة
+    setParents((prevParents) => {
+      const exists = prevParents.some((p) => p.id === parent.id || p.email.toLowerCase() === parent.email.toLowerCase());
+      const updatedList = exists 
+        ? prevParents.map((p) => (p.id === parent.id || p.email.toLowerCase() === parent.email.toLowerCase() ? parent : p))
+        : [...prevParents, parent];
+      saveStoredParents(updatedList);
+      return updatedList;
+    });
+
+    // 2. ضبط الحساب النشط والدور الحالي
     setActiveParentIdState(parent.id);
     setActiveParentId(parent.id);
     setActiveRoleState('parent');
@@ -221,6 +238,29 @@ function AppContent() {
     }
   };
 
+  useEffect(() => {
+    async function loadParentChildren() {
+      if (activeRole === 'parent' && activeParentId) {
+        const dbChildren = await getChildrenByParentId(activeParentId);
+        if (dbChildren && dbChildren.length > 0) {
+          setProfiles((prev) => {
+            const merged = [...prev];
+            dbChildren.forEach((child) => {
+              const index = merged.findIndex((p) => p.id === child.id || p.packCode === child.packCode);
+              if (index >= 0) {
+                merged[index] = child;
+              } else {
+                merged.push(child);
+              }
+            });
+            return merged;
+          });
+        }
+      }
+    }
+    loadParentChildren();
+  }, [activeRole, activeParentId]);
+
   // ----------------------------------------------------
   // Admin Handlers
   // ----------------------------------------------------
@@ -243,7 +283,13 @@ function AppContent() {
   };
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0] || null;
-  const activeParent = parents.find((p) => p.id === activeParentId) || parents[0] || null;
+  const activeParent = parents.find((p) => p.id === activeParentId) || (activeParentId ? {
+    id: activeParentId,
+    name: 'ولي الأمر',
+    email: '',
+    linkedPackCodes: [],
+    createdAt: new Date().toISOString()
+  } : null);
 
   // ========================================================
   // 1. GATEKEEPER / AUTH SCREEN (ROLE SELECTION)
@@ -266,13 +312,21 @@ function AppContent() {
     );
   }
 
-  // ========================================================
+// ========================================================
   // 2. PARENT ROLE VIEW (ISOLATED TO PARENT DASHBOARD)
   // ========================================================
-  if (activeRole === 'parent' && activeParent) {
+  if (activeRole === 'parent') {
+    const currentParent: ParentProfile = activeParent || {
+      id: activeParentId || 'parent-default',
+      name: 'ولي الأمر',
+      email: '',
+      linkedPackCodes: [],
+      createdAt: new Date().toISOString()
+    };
+
     return (
       <ParentDashboard
-        parent={activeParent}
+        parent={currentParent}
         allProfiles={profiles}
         onUpdateParent={handleUpdateParent}
         onUpdateProfiles={handleUpdateAllProfiles}

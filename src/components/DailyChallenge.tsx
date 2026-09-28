@@ -3,6 +3,8 @@ import { DailyChallenge as IDailyChallenge, UserProfile, Badge } from '../types'
 import { DAILY_CHALLENGES, INITIAL_BADGES, getTodayDateString, advanceToNextSimulatedDay, resetSimulatedDate, getSimulatedDateOffset, getStoredDailyChallenges } from '../utils/storage';
 import { useSound } from '../context/SoundContext';
 import { fireDailySuccessConfetti, fireBadgeUnlockConfetti } from '../utils/confettiCelebration';
+import { recordSolvedChallengeInDb } from '../lib/samasmDatabase';
+
 import { 
   Sparkles, 
   Lightbulb, 
@@ -101,42 +103,42 @@ export const DailyChallenge: React.FC<DailyChallengeProps> = ({
 
       let newlyUnlockedBadges: string[] = [];
 
-      // 1. شرارة الفضول الأولى (+10 نقاط): عند حل أول كيس واكتشاف أول لغز
+      // 1. شرارة الفضول الأولى (+10 نقاط)
       if (!updatedBadgeIds.includes('curiosity_spark')) {
         updatedBadgeIds.push('curiosity_spark');
         newlyUnlockedBadges.push('curiosity_spark');
         addedPoints += 10;
       }
 
-      // 2. رتبة المستكشف الذكي (+15 نقطة): عند تخطي 50 نقطة والارتقاء للمستوى الثاني
+      // 2. رتبة المستكشف الذكي (+15 نقطة)
       if (activeProfile.points + addedPoints >= 50 && !updatedBadgeIds.includes('smart_explorer')) {
         updatedBadgeIds.push('smart_explorer');
         newlyUnlockedBadges.push('smart_explorer');
         addedPoints += 15;
       }
 
-      // 3. بطل الالتزام والاستمرار اليومي (+20 نقطة): للمواظبة على حل التحدي كل يوم بيومه
+      // 3. بطل الالتزام والاستمرار اليومي (+20 نقطة)
       if (newSolvedCount >= 2 && !updatedBadgeIds.includes('daily_streak')) {
         updatedBadgeIds.push('daily_streak');
         newlyUnlockedBadges.push('daily_streak');
         addedPoints += 20;
       }
 
-      // 4. مستكشف العوالم المتعددة (+20 نقطة): حل أسئلة في مجالات مختلفة (فضاء، طبيعة، فيزياء)
+      // 4. مستكشف العوالم المتعددة (+20 نقطة)
       if (categories.size >= 3 && !updatedBadgeIds.includes('multiverse_explorer')) {
         updatedBadgeIds.push('multiverse_explorer');
         newlyUnlockedBadges.push('multiverse_explorer');
         addedPoints += 20;
       }
 
-      // 5. المحاول المثابر الذي لا يستسلم (+15 نقطة): مراجعة الإجابة والمحاولة مجدداً حتى الوصول للصواب
+      // 5. المحاول المثابر الذي لا يستسلم (+15 نقطة)
       if ((showHint || (activeProfile.retryCount && activeProfile.retryCount > 0)) && !updatedBadgeIds.includes('persistent_thinker')) {
         updatedBadgeIds.push('persistent_thinker');
         newlyUnlockedBadges.push('persistent_thinker');
         addedPoints += 15;
       }
 
-      // 6. متسائل الصباح الباكر (+15 نقطة): حل التحدي الصباحي بشغف
+      // 6. متسائل الصباح الباكر (+15 نقطة)
       const currentHour = new Date().getHours();
       if (currentHour < 13 && !updatedBadgeIds.includes('early_bird')) {
         updatedBadgeIds.push('early_bird');
@@ -144,28 +146,28 @@ export const DailyChallenge: React.FC<DailyChallengeProps> = ({
         addedPoints += 15;
       }
 
-      // 7. حارس أسرار النكهات الخمس (+25 نقطة): استكشاف أكياس ونكهات مختلفة
+      // 7. حارس أسرار النكهات الخمس (+25 نقطة)
       if ((newSolvedCount >= 5 || currentChallenge.id === 'day-7') && !updatedBadgeIds.includes('five_flavors')) {
         updatedBadgeIds.push('five_flavors');
         newlyUnlockedBadges.push('five_flavors');
         addedPoints += 25;
       }
 
-      // 8. رتبة العالم الصغير (+30 نقطة): تخطي 150 نقطة والدخول لنادي العلماء الصغار
+      // 8. رتبة العالم الصغير (+30 نقطة)
       if (activeProfile.points + addedPoints >= 150 && !updatedBadgeIds.includes('junior_scientist')) {
         updatedBadgeIds.push('junior_scientist');
         newlyUnlockedBadges.push('junior_scientist');
         addedPoints += 30;
       }
 
-      // 9. المحقق العلمي العبقري (+25 نقطة): حل التحدي المتقدم في فيزياء الجاذبية
+      // 9. المحقق العلمي العبقري (+25 نقطة)
       if ((currentChallenge.id === 'day-6' || currentChallenge.badgeRewardId === 'physics_detective') && !updatedBadgeIds.includes('physics_detective')) {
         updatedBadgeIds.push('physics_detective');
         newlyUnlockedBadges.push('physics_detective');
         addedPoints += 25;
       }
 
-      // 10. وسام بروفيسور سماسم (+50 نقطة): الوصول للقمة المعرفية
+      // 10. وسام بروفيسور سماسم (+50 نقطة)
       if (activeProfile.points + addedPoints >= 250 && !updatedBadgeIds.includes('professor_grand')) {
         updatedBadgeIds.push('professor_grand');
         newlyUnlockedBadges.push('professor_grand');
@@ -194,13 +196,19 @@ export const DailyChallenge: React.FC<DailyChallengeProps> = ({
         retryCount: 0,
       };
 
+      // 1. تحديث البروفايل محلياً
       onUpdateProfile(updatedProfile);
+
+      // 2. تسجيل حل التحدي في Supabase
+      recordSolvedChallengeInDb(activeProfile.id, currentChallenge.id, addedPoints);
+
       setFeedback({
         isCorrect: true,
         message: isGirl
           ? 'إجابة مذهلة وصحيحة 100%! أنتِ بطلة خارقة في سماسم! 🎉'
           : 'إجابة مذهلة وصحيحة 100%! أنت بطل خارق في سماسم! 🎉',
       });
+
     } else {
       // Incorrect
       playTryAgain();

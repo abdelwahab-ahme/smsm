@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile, Gender, ParentProfile } from '../types';
 import { useSound } from '../context/SoundContext';
-import { verifyAdminEmail, verifyAdminPin, getStoredAdminEmail } from '../utils/storage';
+import { verifyAdminEmail, verifyAdminPin } from '../utils/storage';
 import confetti from 'canvas-confetti';
 import { 
   Sparkles, 
@@ -13,19 +13,13 @@ import {
   Moon, 
   Volume2, 
   VolumeX, 
-  Search, 
   ArrowRight, 
   Mail, 
   Smartphone, 
-  AlertCircle, 
-  Users, 
-  GraduationCap, 
   KeyRound, 
   Plus, 
   Trash2, 
-  CheckCircle2,
-  Lock,
-  Heart
+  Lock
 } from 'lucide-react';
 import {
   sendParentOtp,
@@ -33,6 +27,7 @@ import {
   getParentByEmail,
   createParentProfile,
 } from '../lib/samasmDatabase';
+
 interface AuthScreenProps {
   profiles: UserProfile[];
   parents: ParentProfile[];
@@ -98,7 +93,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [isAdminEmailVerified, setIsAdminEmailVerified] = useState(false);
   const [adminPinInput, setAdminPinInput] = useState('');
   const [adminError, setAdminError] = useState('');
-  const [showAdminPin, setShowAdminPin] = useState(false);
 
   const { isMuted, toggleSound, playClick, playPop, playBadgeUnlock, playTryAgain, playSuccessWhistle } = useSound();
 
@@ -177,47 +171,42 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const handleParentLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setParentLoginError('');
-  
+
     if (!parentLoginEmail.trim() || !parentLoginEmail.includes('@')) {
       setParentLoginError('يرجى إدخال بريد إلكتروني صالح');
       playTryAgain();
       return;
     }
-  
+
     const cleanEmail = parentLoginEmail.trim().toLowerCase();
-  
+
     try {
       setParentAuthLoading(true);
-  
-      // الخطوة الأولى: إرسال كود التحقق
+
       if (!parentOtpSent) {
         await sendParentOtp(cleanEmail);
         setParentOtpSent(true);
         playSuccessWhistle();
         return;
       }
-  
-      // الخطوة الثانية: التحقق من الكود
+
       if (!parentOtp.trim()) {
         setParentLoginError('يرجى إدخال كود التحقق المرسل إلى بريدك الإلكتروني');
         playTryAgain();
         return;
       }
-  
+
       const authResult = await verifyParentOtp(cleanEmail, parentOtp);
-  
       const authUser = authResult.user;
-  
+
       if (!authUser) {
         setParentLoginError('تعذر إنشاء جلسة تسجيل الدخول. حاول مرة أخرى.');
         playTryAgain();
         return;
       }
-  
-      // البحث عن ملف ولي الأمر الموجود في قاعدة البيانات
+
       let parent = await getParentByEmail(cleanEmail);
-  
-      // إنشاء الملف لأول مرة إذا لم يكن موجوداً
+
       if (!parent) {
         await createParentProfile(
           authUser.id,
@@ -226,13 +215,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         );
         parent = await getParentByEmail(cleanEmail);
       }
-  
+
       if (!parent) {
         setParentLoginError('تم تسجيل الدخول ولكن تعذر تحميل ملف ولي الأمر.');
         playTryAgain();
         return;
       }
-  
+
       playSuccessWhistle();
       onParentLogin(parent);
     } catch (error: any) {
@@ -244,6 +233,49 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     } finally {
       setParentAuthLoading(false);
     }
+  };
+
+  const handleAddChildToParentReg = () => {
+    playPop();
+    setParentChildrenList([...parentChildrenList, { name: '', packCode: '' }]);
+  };
+
+  const handleRemoveChildFromParentReg = (index: number) => {
+    playClick();
+    if (parentChildrenList.length > 1) {
+      setParentChildrenList(parentChildrenList.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleParentRegisterSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setParentRegError('');
+
+    if (!parentRegName.trim()) {
+      setParentRegError('يرجى كتابة اسم ولي الأمر');
+      playTryAgain();
+      return;
+    }
+
+    if (!parentRegEmail.trim() || !parentRegEmail.includes('@')) {
+      setParentRegError('يرجى إدخال بريد إلكتروني صحيح');
+      playTryAgain();
+      return;
+    }
+
+    const validChildren = parentChildrenList.filter(c => c.name.trim() && c.packCode.trim());
+    if (validChildren.length === 0) {
+      setParentRegError('يرجى إضافة طفل واحد على الأقل مع الاسم وكود الكيس');
+      playTryAgain();
+      return;
+    }
+
+    onRegisterParentWithChildren(
+      { name: parentRegName.trim(), email: parentRegEmail.trim().toLowerCase() },
+      validChildren
+    );
+
+    playSuccessWhistle();
   };
 
   // ----------------------------------------------------
@@ -314,7 +346,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Dark Mode */}
           <button
             onClick={onToggleDarkMode}
             className="p-2 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-pink-300 text-slate-700 dark:text-amber-300 shadow-xs cursor-pointer transition-colors"
@@ -324,7 +355,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             {isDarkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
           </button>
 
-          {/* Sound Toggle */}
           <button
             onClick={toggleSound}
             className="p-2 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-pink-300 text-slate-700 dark:text-slate-200 shadow-xs cursor-pointer transition-colors"
@@ -367,8 +397,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
         {/* 1. ROLE SELECTOR TABS (CHILD / PARENT / ADMIN) */}
         <div className="bg-white/95 dark:bg-slate-900/95 p-1.5 rounded-3xl border-2 border-purple-200 dark:border-purple-900/80 shadow-md grid grid-cols-3 gap-1.5 mb-4">
-          
-          {/* Child Role Button */}
           <button
             type="button"
             onClick={() => {
@@ -385,7 +413,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <span>بطل (طفل)</span>
           </button>
 
-          {/* Parent Role Button */}
           <button
             type="button"
             onClick={() => {
@@ -402,7 +429,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <span>ولي أمر</span>
           </button>
 
-          {/* Admin Role Button */}
           <button
             type="button"
             onClick={() => {
@@ -418,19 +444,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <Shield className="w-4 h-4 text-amber-300" />
             <span>مدير النظام</span>
           </button>
-
         </div>
 
         {/* MAIN BODY CARD PER ROLE */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border-2 border-pink-200 dark:border-indigo-900/80 shadow-xl transition-colors">
           
-          {/* ======================================================== */}
-          {/* ROLE 1: CHILD VIEW                                       */}
-          {/* ======================================================== */}
+          {/* ROLE 1: CHILD VIEW */}
           {selectedRole === 'child' && (
             <div className="space-y-4">
-              
-              {/* Secondary sub-tabs: Login vs Register */}
               <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-2xl">
                 <button
                   type="button"
@@ -472,10 +493,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </button>
               </div>
 
-              {/* CHILD TAB 1: LOGIN */}
               {childTab === 'login' && (
                 <div className="space-y-4">
-                  {/* Device accounts counter banner */}
                   <div className="p-3 rounded-2xl bg-linear-to-r from-purple-50 to-pink-50 dark:from-purple-950/40 dark:to-pink-950/40 border border-purple-200 dark:border-purple-800 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-purple-950 dark:text-purple-200">
                       <Smartphone className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
@@ -497,7 +516,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     </span>
                   </div>
 
-                  {/* Direct Search Bar */}
                   <form onSubmit={handleDirectChildLogin} className="space-y-2">
                     <div className="relative">
                       <input
@@ -522,7 +540,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     )}
                   </form>
 
-                  {/* Saved Profiles List */}
                   {profiles.length > 0 ? (
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                       <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 block text-right">
@@ -595,10 +612,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </div>
               )}
 
-              {/* CHILD TAB 2: REGISTER */}
               {childTab === 'register' && (
                 <form onSubmit={handleRegisterChildSubmit} className="space-y-3">
-                  {/* Gender Choice */}
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
                       النوع:
@@ -632,7 +647,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     </div>
                   </div>
 
-                  {/* Hero Name */}
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
                       اسم {gender === 'girl' ? 'البطلة' : 'البطل'}:
@@ -647,7 +661,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     />
                   </div>
 
-                  {/* Pack Code */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-black text-slate-800 dark:text-slate-200">
@@ -676,7 +689,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     />
                   </div>
 
-                  {/* Avatar Selector */}
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
                       اختر الرمز المفضل:
@@ -717,17 +729,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </button>
                 </form>
               )}
-
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* ROLE 2: PARENT VIEW                                      */}
-          {/* ======================================================== */}
+          {/* ROLE 2: PARENT VIEW */}
           {selectedRole === 'parent' && (
             <div className="space-y-4">
-              
-              {/* Secondary sub-tabs: Login vs Register */}
               <div className="grid grid-cols-2 gap-1.5 bg-purple-50 dark:bg-slate-800/80 p-1 rounded-2xl">
                 <button
                   type="button"
@@ -738,12 +745,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   }}
                   className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     parentTab === 'login'
-                      ? 'bg-white dark:bg-slate-700 text-purple-700 dark:text-purple-300 shadow-xs'
+                      ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs'
                       : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
                   <LogIn className="w-3.5 h-3.5" />
-                  <span>دخول ولي أمر مسجل</span>
+                  <span>دخول ولي أمر</span>
                 </button>
 
                 <button
@@ -755,333 +762,272 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   }}
                   className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     parentTab === 'register'
-                      ? 'bg-white dark:bg-slate-700 text-purple-700 dark:text-purple-300 shadow-xs'
+                      ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-xs'
                       : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>تسجيل جديد وربط الأبناء</span>
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>تسجيل جديد مع أطفالك</span>
                 </button>
               </div>
 
-              {/* PARENT TAB 1: LOGIN */}
+              {/* PARENT LOGIN */}
               {parentTab === 'login' && (
-                <form onSubmit={handleParentLoginSubmit} className="space-y-3.5">
-                <div className="p-3 rounded-2xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-xs text-purple-900 dark:text-purple-200 leading-relaxed font-bold">
-                  أهلاً بك في بوابة متابعة الأبناء! سجّل ببريدك الإلكتروني لاستعراض نشاط وتطور أطفالك فوراً.
-                </div>
-              
-                <div>
-                  <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                    البريد الإلكتروني لولي الأمر:
-                  </label>
-              
-                  <input
-                    type="email"
-                    value={parentLoginEmail}
-                    onChange={(e) => {
-                      setParentLoginEmail(e.target.value);
-                      setParentLoginError('');
-                    }}
-                    placeholder="parent@example.com"
-                    dir="ltr"
-                    className="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
-                    required
-                    disabled={parentAuthLoading}
-                  />
-                </div>
-              
-                {parentOtpSent && (
+                <form onSubmit={handleParentLoginSubmit} className="space-y-3">
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                      كود التحقق المرسل إلى بريدك الإلكتروني:
+                      البريد الإلكتروني لولي الأمر:
                     </label>
-              
-                    <input
-                      type="text"
-                      value={parentOtp}
-                      onChange={(e) => {
-                        setParentOtp(
-                          e.target.value.replace(/\D/g, '').slice(0, 8)
-                        );
-                        setParentLoginError('');
-                      }}
-                      placeholder="12345678"
-                      dir="ltr"
-                      inputMode="numeric"
-                      maxLength={8}
-                      autoComplete="one-time-code"
-                      className="w-full px-3.5 py-2.5 rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center tracking-[0.4em] text-sm"
-                      disabled={parentAuthLoading}
-                    />
-                  </div>
-                )}
-              
-                {parentLoginError && (
-                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center gap-1.5">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                    <span>{parentLoginError}</span>
-                  </div>
-                )}
-              
-                <button
-                  type="submit"
-                  disabled={parentAuthLoading}
-                  className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <GraduationCap className="w-4 h-4" />
-                  <span>
-                    {parentAuthLoading
-                      ? 'جاري المعالجة...'
-                      : parentOtpSent
-                        ? 'تأكيد كود التحقق 🔐'
-                        : 'إرسال كود التحقق 📧'}
-                  </span>
-                </button>
-              </form>
-              )}
-
-              {/* PARENT TAB 2: REGISTER & LINK CHILDREN */}
-              {parentTab === 'register' && (
-                <form onSubmit={handleParentRegisterSubmit} className="space-y-3.5">
-                  <div className="p-3 rounded-2xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-xs text-purple-900 dark:text-purple-200 leading-relaxed font-bold">
-                    سجّل حسابك واكتب أكواد وأسماء أبنائك (المكتوبة على كيس سماسم) لربطهم وعرض نشاطهم ومتابعتهم يومياً.
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                        اسم ولي الأمر (اختياري):
-                      </label>
-                      <input
-                        type="text"
-                        value={parentRegName}
-                        onChange={(e) => setParentRegName(e.target.value)}
-                        placeholder="مثال: والد عمر / أم سارة"
-                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                        البريد الإلكتروني *:
-                      </label>
+                    <div className="relative">
                       <input
                         type="email"
-                        value={parentRegEmail}
-                        onChange={(e) => setParentRegEmail(e.target.value)}
-                        placeholder="parent@example.com"
+                        value={parentLoginEmail}
+                        onChange={(e) => setParentLoginEmail(e.target.value)}
+                        placeholder="example@mail.com"
+                        disabled={parentOtpSent || parentAuthLoading}
                         dir="ltr"
-                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs"
+                        className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
                         required
                       />
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                     </div>
                   </div>
 
-                  {/* Children Rows */}
-                  <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">
+                  {parentOtpSent && (
+                    <div>
+                      <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+                        رمز التحقق (OTP):
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={parentOtp}
+                          onChange={(e) => setParentOtp(e.target.value)}
+                          placeholder="ادخل الكود المرسل لبريدك"
+                          disabled={parentAuthLoading}
+                          dir="ltr"
+                          className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-xs sm:text-sm tracking-widest text-center"
+                          required
+                        />
+                        <KeyRound className="w-4 h-4 text-purple-500 absolute left-3 top-3" />
+                      </div>
+                    </div>
+                  )}
+
+                  {parentLoginError && (
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                      {parentLoginError}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={parentAuthLoading}
+                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {parentAuthLoading ? 'جاري المعالجة...' : parentOtpSent ? 'تأكيد ودخول 🔓' : 'إرسال كود التحقق ✉️'}
+                  </button>
+                </form>
+              )}
+
+              {/* PARENT REGISTER WITH CHILDREN */}
+              {parentTab === 'register' && (
+                <form onSubmit={handleParentRegisterSubmit} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+                      اسم ولي الأمر:
+                    </label>
+                    <input
+                      type="text"
+                      value={parentRegName}
+                      onChange={(e) => setParentRegName(e.target.value)}
+                      placeholder="مثال: د. محمد علي"
+                      className="w-full px-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+                      البريد الإلكتروني:
+                    </label>
+                    <input
+                      type="email"
+                      value={parentRegEmail}
+                      onChange={(e) => setParentRegEmail(e.target.value)}
+                      placeholder="parent@example.com"
+                      dir="ltr"
+                      className="w-full px-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2 border-t pt-3 border-slate-200 dark:border-slate-800">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-black text-purple-900 dark:text-purple-300 flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5" />
-                        <span>الأبناء المراد ربطهم:</span>
+                      <label className="text-xs font-black text-purple-900 dark:text-purple-300">
+                        أطفالك المربوطين بالحساب:
                       </label>
                       <button
                         type="button"
-                        onClick={handleAddChildRow}
-                        className="text-[11px] font-black text-purple-700 dark:text-purple-300 hover:text-purple-900 bg-purple-100 dark:bg-purple-950 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer"
+                        onClick={handleAddChildToParentReg}
+                        className="text-[11px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-2 py-1 rounded-xl flex items-center gap-1 cursor-pointer"
                       >
                         <Plus className="w-3 h-3" />
-                        <span>+ إضافة طفل آخر</span>
+                        <span>إضافة طفل</span>
                       </button>
                     </div>
 
-                    {parentChildrenList.map((childRow, idx) => (
-                      <div
-                        key={idx}
-                        className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-300">
-                          <span>الطفل #{idx + 1}:</span>
-                          {parentChildrenList.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveChildRow(idx)}
-                              className="text-rose-500 hover:text-rose-700 p-0.5"
-                              title="حذف هذا الطفل"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <input
-                            type="text"
-                            value={childRow.name}
-                            onChange={(e) => handleChildRowChange(idx, 'name', e.target.value)}
-                            placeholder="اسم الطفل (مثال: عمر)"
-                            className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold"
-                          />
-                          <input
-                            type="text"
-                            value={childRow.packCode}
-                            onChange={(e) => handleChildRowChange(idx, 'packCode', e.target.value.toUpperCase())}
-                            placeholder="كود الطفل / الكيس (SMSM-7701)"
-                            dir="ltr"
-                            className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono text-xs font-black"
-                            required
-                          />
-                        </div>
+                    {parentChildrenList.map((child, index) => (
+                      <div key={index} className="flex items-center gap-1.5 bg-purple-50/50 dark:bg-slate-800/40 p-2 rounded-2xl border border-purple-100 dark:border-slate-800">
+                        <input
+                          type="text"
+                          value={child.name}
+                          onChange={(e) => {
+                            const updated = [...parentChildrenList];
+                            updated[index].name = e.target.value;
+                            setParentChildrenList(updated);
+                          }}
+                          placeholder="اسم الطفل"
+                          className="w-1/2 px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold"
+                          required
+                        />
+                        <input
+                          type="text"
+                          value={child.packCode}
+                          onChange={(e) => {
+                            const updated = [...parentChildrenList];
+                            updated[index].packCode = e.target.value.toUpperCase();
+                            setParentChildrenList(updated);
+                          }}
+                          placeholder="كود الكيس"
+                          dir="ltr"
+                          className="w-1/2 px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono font-bold"
+                          required
+                        />
+                        {parentChildrenList.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveChildFromParentReg(index)}
+                            className="p-1.5 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-950 rounded-lg cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
 
                   {parentRegError && (
-                    <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span>{parentRegError}</span>
-                    </div>
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                      {parentRegError}
+                    </p>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>تأكيد تسجيل ولي الأمر ودخول لوحة المتابعة 🚀</span>
+                    إنشاء حساب ولي الأمر والأبناء 🎉
                   </button>
                 </form>
               )}
-
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* ROLE 3: ADMIN VIEW (RESTRICTED TO SUPER ADMIN ONLY)      */}
-          {/* ======================================================== */}
+          {/* ROLE 3: ADMIN VIEW */}
           {selectedRole === 'admin' && (
             <div className="space-y-4">
-              
-              {/* Security Banner */}
-              <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/50 border-2 border-red-300 dark:border-red-800 text-red-950 dark:text-red-200 space-y-1">
-                <div className="flex items-center gap-2 font-black text-xs sm:text-sm">
-                  <Shield className="w-4 h-4 text-red-600" />
-                  <span>منطقة محظورة ومخصصة لمدير المنصة فقط (Super Admin)</span>
+              <div className="text-center space-y-1 mb-3">
+                <div className="w-12 h-12 bg-red-100 dark:bg-red-950/60 rounded-2xl flex items-center justify-center mx-auto text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800">
+                  <Shield className="w-6 h-6" />
                 </div>
-                <p className="text-[11px] text-red-800 dark:text-red-300 leading-relaxed font-bold">
-                  لا يمكن الدخول إلا بالبريد الإلكتروني الرسمي لمدير النظام والرمز السري.
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  لوحة تحكم مدير النظام
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  يرجى تأكيد هوية المسؤول للوصول للوحة الإدارة
                 </p>
               </div>
 
-              {/* STEP 1: ADMIN EMAIL VERIFICATION */}
               {!isAdminEmailVerified ? (
                 <form onSubmit={handleVerifyAdminEmail} className="space-y-3">
                   <div>
                     <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                      البريد الإلكتروني للمدير (Admin Email):
+                      البريد الإلكتروني للمسؤول:
                     </label>
-                    <input
-                      type="email"
-                      value={adminEmailInput}
-                      onChange={(e) => {
-                        setAdminEmailInput(e.target.value);
-                        setAdminError('');
-                      }}
-                      placeholder="admin@Example.com"
-                      dir="ltr"
-                      className="w-full px-3.5 py-2.5 rounded-xl border-2 border-red-200 dark:border-red-800 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
-                      required
-                    />
+                    <div className="relative">
+                      <input
+                        type="email"
+                        value={adminEmailInput}
+                        onChange={(e) => setAdminEmailInput(e.target.value)}
+                        placeholder="admin@samasm.com"
+                        dir="ltr"
+                        className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono text-xs sm:text-sm"
+                        required
+                      />
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    </div>
                   </div>
 
                   {adminError && (
-                    <div className="p-3 rounded-xl bg-rose-100 dark:bg-rose-950/80 border-2 border-rose-400 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center gap-2 animate-shake">
-                      <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
-                      <span>{adminError}</span>
-                    </div>
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                      {adminError}
+                    </p>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
-                    <Shield className="w-4 h-4" />
-                    <span>التحقق من صلاحية البريد للمتابعة</span>
+                    التحقق من البريد 🔍
                   </button>
                 </form>
               ) : (
-                /* STEP 2: PIN VERIFICATION (REVEALED ONLY AFTER EMAIL IS VERIFIED) */
                 <form onSubmit={handleAdminPinSubmit} className="space-y-3">
-                  <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 text-emerald-900 dark:text-emerald-200 text-xs font-black flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>تم التحقق من بريد المدير بنجاح</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsAdminEmailVerified(false);
-                        setAdminPinInput('');
-                      }}
-                      className="text-[10px] text-slate-500 underline hover:text-slate-800"
-                    >
-                      تغيير البريد
-                    </button>
-                  </div>
-
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-black text-slate-800 dark:text-slate-200">
-                        الرمز السري لمدير النظام (PIN / Password):
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowAdminPin(!showAdminPin)}
-                        className="text-[10px] font-black text-slate-500 hover:text-slate-800 cursor-pointer"
-                      >
-                        {showAdminPin ? 'إخفاء 👁️' : 'إظهار 🔒'}
-                      </button>
+                    <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+                      رمز PIN الخاص بالإدارة:
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        value={adminPinInput}
+                        onChange={(e) => setAdminPinInput(e.target.value)}
+                        placeholder="••••••••"
+                        maxLength={15}
+                        dir="ltr"
+                        className="w-full pl-10 pr-3.5 py-2 rounded-xl border-2 border-red-300 dark:border-red-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center text-sm tracking-widest"
+                        required
+                      />
+                      <Lock className="w-4 h-4 text-red-500 absolute left-3 top-3" />
                     </div>
-
-                    <input
-                      type={showAdminPin ? 'text' : 'password'}
-                      value={adminPinInput}
-                      onChange={(e) => setAdminPinInput(e.target.value)}
-                      placeholder="أدخل الرمز السري للأدمن"
-                      dir="ltr"
-                      className="w-full px-3.5 py-2.5 rounded-xl border-2 border-red-300 dark:border-red-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center tracking-widest text-sm"
-                      autoFocus
-                      required
-                    />
                   </div>
 
                   {adminError && (
-                    <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span>{adminError}</span>
-                    </div>
+                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-xl border border-rose-200">
+                      {adminError}
+                    </p>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-red-600 via-rose-700 to-amber-600 hover:from-red-700 hover:to-rose-800 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
-                    <Lock className="w-4 h-4" />
-                    <span>دخول لوحة تحكم الأدمن مباشرة 🛡️</span>
+                    الدخول للوحة التحكم 🚀
                   </button>
                 </form>
               )}
-
             </div>
           )}
 
         </div>
-
       </div>
 
-      {/* Footer copyright */}
-      <footer className="max-w-md w-full mx-auto text-center text-xs font-bold text-slate-500 dark:text-slate-400">
-        <p>تطبيق سماسم للأطفال • كل سؤال… بداية اكتشاف 🍭</p>
+      {/* Footer */}
+      <footer className="max-w-4xl w-full mx-auto text-center pt-4">
+        <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400">
+          جميع الحقوق محفوظة © سماسم 2026
+        </p>
       </footer>
 
     </div>

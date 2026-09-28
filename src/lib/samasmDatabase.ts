@@ -310,3 +310,142 @@ export async function verifyParentOtp(
   
     return data;
   }
+  export async function getChildrenByParentId(parentId: string): Promise<UserProfile[]> {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('parent_id', parentId);
+  
+      if (error) {
+        console.error('Error fetching children for parent:', error.message);
+        return [];
+      }
+  
+      return (data || []) as UserProfile[];
+    } catch (err) {
+      console.error('Unexpected error in getChildrenByParentId:', err);
+      return [];
+    }
+  }
+  export async function createChildProfileInDb(
+    profileData: Partial<UserProfile> & { name: string; packCode: string; gender: Gender; avatar: string },
+    parentId?: string
+  ): Promise<UserProfile | null> {
+    try {
+      const newChild = {
+        id: profileData.id || `hero-${Date.now()}`,
+        name: profileData.name,
+        pack_code: profileData.packCode,
+        gender: profileData.gender,
+        avatar: profileData.avatar,
+        points: profileData.points || 0,
+        parent_id: parentId || null,
+        created_at: new Date().toISOString()
+      };
+  
+      console.log('--- DB Insert Payload ---', newChild);
+  
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .insert([newChild])
+        .select();
+  
+      if (error) {
+        console.error('❌ Supabase Insert Error:', error);
+        return null;
+      }
+  
+      console.log('✅ Supabase Insert Success:', data);
+      return data ? (data[0] as unknown as UserProfile) : null;
+    } catch (err) {
+      console.error('❌ Unexpected error in createChildProfileInDb:', err);
+      return null;
+    }
+  }
+  export async function updateChildProfileInDb(
+    profileId: string,
+    updates: Partial<UserProfile>
+  ): Promise<UserProfile | null> {
+    try {
+      const dbPayload: Record<string, any> = {};
+  
+      if (updates.name !== undefined) dbPayload.name = updates.name;
+      if (updates.packCode !== undefined) dbPayload.pack_code = updates.packCode;
+      if (updates.gender !== undefined) dbPayload.gender = updates.gender;
+      if (updates.avatar !== undefined) dbPayload.avatar = updates.avatar;
+      if (updates.points !== undefined) dbPayload.points = updates.points;
+      if (updates.unlockedBadgeIds !== undefined) dbPayload.unlocked_badge_ids = updates.unlockedBadgeIds;
+      if (updates.lastSolvedDate !== undefined) dbPayload.last_solved_date = updates.lastSolvedDate;
+      if (updates.solvedChallengesCount !== undefined) dbPayload.solved_challenges_count = updates.solvedChallengesCount;
+      if (updates.solvedCategories !== undefined) dbPayload.solved_categories = updates.solvedCategories;
+  
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .update(dbPayload)
+        .eq('id', profileId)
+        .select();
+  
+      if (error) {
+        console.error('❌ Error updating child profile in DB:', error.message);
+        return null;
+      }
+  
+      console.log('✅ Supabase Profile Update Success:', data);
+      return data ? (data[0] as unknown as UserProfile) : null;
+    } catch (err) {
+      console.error('❌ Unexpected error in updateChildProfileInDb:', err);
+      return null;
+    }
+  }
+  export async function recordSolvedChallengeInDb(
+    profileId: string,
+    challengeId: string,
+    pointsEarned: number
+  ): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('user_challenges')
+        .insert([
+          {
+            user_id: profileId,
+            challenge_id: challengeId,
+            points_earned: pointsEarned,
+            completed_at: new Date().toISOString()
+          }
+        ]);
+  
+      if (error) {
+        console.error('❌ Error recording challenge in DB:', error.message);
+        return false;
+      }
+  
+      console.log('✅ Challenge completion recorded in Supabase successfully');
+      return true;
+    } catch (err) {
+      console.error('❌ Unexpected error in recordSolvedChallengeInDb:', err);
+      return false;
+    }
+  }
+  export async function getChildChallengesHistory(
+    profileId: string
+  ): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('user_challenges')
+        .select('*')
+        .eq('user_id', profileId)
+        .order('completed_at', { ascending: false });
+  
+      if (error) {
+        console.error('❌ Error fetching child challenges history:', error.message);
+        return [];
+      }
+  
+      return data || [];
+    } catch (err) {
+      console.error('❌ Unexpected error in getChildChallengesHistory:', err);
+      return [];
+    }
+  }
+  

@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { UserProfile, ParentProfile, Badge } from '../types';
+import { UserProfile, ParentProfile } from '../types';
 import { INITIAL_BADGES, getTodayDateString } from '../utils/storage';
 import { useSound } from '../context/SoundContext';
 import { 
-  Users, 
   Trophy, 
   Award, 
   Sparkles, 
@@ -13,18 +12,15 @@ import {
   AlertCircle, 
   Trash2, 
   LogOut, 
-  Heart, 
   Compass, 
-  BookOpen, 
   Sun, 
   Moon, 
   Volume2, 
   VolumeX, 
   Lightbulb,
-  ExternalLink,
-  ChevronRight,
   ShieldCheck,
-  GraduationCap
+  GraduationCap,
+  Award as CertificateIcon
 } from 'lucide-react';
 
 interface ParentDashboardProps {
@@ -61,17 +57,17 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const { playClick, playPop, playSuccessWhistle, playTryAgain, isMuted, toggleSound } = useSound();
   const todayStr = getTodayDateString();
 
-  // Find linked children
+  // جلب الأطفال المرتبطين بحساب ولي الأمر
   const linkedChildren = allProfiles.filter((p) =>
     parent.linkedPackCodes.some((code) => code.toUpperCase() === p.packCode.toUpperCase())
   );
 
-  // Default selected child
+  // تحديد الطفل المختار حالياً
   const currentChild = selectedChildId
     ? linkedChildren.find((c) => c.id === selectedChildId) || linkedChildren[0] || null
     : linkedChildren[0] || null;
 
-  // Handle linking child
+  // التعامل مع تقديم نموذج ربط الطفل
   const handleLinkChildSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLinkError('');
@@ -86,14 +82,12 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
     const cleanCode = newChildCode.trim().toUpperCase();
 
-    // Check if already linked
     if (parent.linkedPackCodes.includes(cleanCode)) {
       setLinkError('هذا الطفل مرتبط بحسابك بالفعل!');
       playTryAgain();
       return;
     }
 
-    // Verify if profile exists in database
     const matchedProfile = allProfiles.find((p) => p.packCode.toUpperCase() === cleanCode);
 
     if (!matchedProfile) {
@@ -110,13 +104,11 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       return;
     }
 
-    // Link child
     const updatedCodes = [...parent.linkedPackCodes, cleanCode];
-    const updatedParent: ParentProfile = {
+    onUpdateParent({
       ...parent,
       linkedPackCodes: updatedCodes,
-    };
-    onUpdateParent(updatedParent);
+    });
     setLinkSuccess(`تم ربط حساب البطل "${matchedProfile.name}" بنجاح! 🎉`);
     playSuccessWhistle();
     setNewChildCode('');
@@ -141,15 +133,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       createdAt: new Date().toISOString(),
     };
 
-    const updatedProfiles = [...allProfiles, newChildProfile];
-    onUpdateProfiles(updatedProfiles);
+    onUpdateProfiles([...allProfiles, newChildProfile]);
 
     const updatedCodes = [...parent.linkedPackCodes, code];
-    const updatedParent: ParentProfile = {
+    onUpdateParent({
       ...parent,
       linkedPackCodes: updatedCodes,
-    };
-    onUpdateParent(updatedParent);
+    });
 
     setLinkSuccess(`تم إنشاء حساب البطل "${name}" وربطه بلوحة متابعتك بنجاح! 🎉`);
     playSuccessWhistle();
@@ -164,8 +154,22 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     setUnlinkConfirmChild({ code: packCode, name });
   };
 
+  const confirmUnlink = () => {
+    if (!unlinkConfirmChild) return;
+    const updatedCodes = parent.linkedPackCodes.filter(
+      (c) => c.toUpperCase() !== unlinkConfirmChild.code.toUpperCase()
+    );
+    onUpdateParent({
+      ...parent,
+      linkedPackCodes: updatedCodes,
+    });
+    setUnlinkConfirmChild(null);
+    setSelectedChildId(null);
+    playPop();
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-linear-to-b from-indigo-50/70 via-purple-50/50 to-pink-50/60 dark:from-slate-950 dark:via-indigo-950 dark:to-slate-900 text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-indigo-50/70 via-purple-50/50 to-pink-50/60 dark:from-slate-950 dark:via-indigo-950 dark:to-slate-900 text-slate-900 dark:text-slate-100 transition-colors">
       
       {/* Top Navbar */}
       <header className="sticky top-0 z-40 backdrop-blur-md bg-white/95 dark:bg-slate-900/95 border-b-2 border-purple-200 dark:border-purple-900/80 shadow-xs">
@@ -177,7 +181,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-black text-xl bg-linear-to-r from-purple-700 to-indigo-600 bg-clip-text text-transparent">
+                <span className="font-black text-xl bg-gradient-to-r from-purple-700 to-indigo-600 bg-clip-text text-transparent">
                   سماسم — بوابة ولي الأمر
                 </span>
                 <span className="bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-purple-300">
@@ -191,7 +195,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Dark Mode */}
             <button
               onClick={onToggleDarkMode}
               className="p-2 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-amber-300 shadow-xs cursor-pointer"
@@ -200,7 +203,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               {isDarkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
             </button>
 
-            {/* Sound */}
             <button
               onClick={toggleSound}
               className="p-2 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-xs cursor-pointer"
@@ -209,7 +211,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4 text-rose-500" /> : <Volume2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
             </button>
 
-            {/* Logout */}
             <button
               onClick={() => {
                 playClick();
@@ -230,7 +231,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
         
         {/* Welcome & Overview Banner */}
-        <div className="bg-linear-to-r from-purple-700 via-indigo-700 to-pink-600 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-purple-300 relative overflow-hidden">
+        <div className="bg-gradient-to-r from-purple-700 via-indigo-700 to-pink-600 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-purple-300 relative overflow-hidden">
           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-5">
             <div className="text-center md:text-right space-y-2">
               <span className="inline-flex items-center gap-1 bg-white/20 px-3 py-1 rounded-full text-xs font-black backdrop-blur-md">
@@ -354,7 +355,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </div>
         )}
 
-        {/* Children Selector Tabs (If multiple children linked) */}
+        {/* Children Selector Tabs */}
         {linkedChildren.length > 0 ? (
           <div className="space-y-6">
             
@@ -406,7 +407,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 {/* Child Header Card */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
                   <div className="flex items-center gap-4">
-                    <div className="w-18 h-18 rounded-3xl bg-linear-to-br from-amber-300 to-pink-400 p-1 flex items-center justify-center text-4xl shadow-md">
+                    <div className="w-18 h-18 rounded-3xl bg-gradient-to-br from-amber-300 to-pink-400 p-1 flex items-center justify-center text-4xl shadow-md">
                       <div className="w-full h-full bg-white dark:bg-slate-800 rounded-[20px] flex items-center justify-center">
                         {currentChild.avatar}
                       </div>
@@ -439,9 +440,20 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 w-full sm:w-auto">
+                    {onPreviewChildCertificate && (
+                      <button
+                        onClick={() => onPreviewChildCertificate(currentChild)}
+                        className="px-3 py-2 rounded-xl text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950 dark:text-purple-300 text-xs font-black flex items-center gap-1 border border-purple-200 cursor-pointer"
+                        title="عرض شهادة التقدير"
+                      >
+                        <CertificateIcon className="w-3.5 h-3.5" />
+                        <span>الشهادة 📜</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => handleUnlinkChild(currentChild.packCode, currentChild.name)}
-                      className="px-3 py-2 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-black flex items-center gap-1 border border-rose-200"
+                      className="px-3 py-2 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-black flex items-center gap-1 border border-rose-200 cursor-pointer"
                       title="فك ارتباط الطفل"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -619,15 +631,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const updatedCodes = parent.linkedPackCodes.filter((c) => c.toUpperCase() !== unlinkConfirmChild.code.toUpperCase());
-                  onUpdateParent({
-                    ...parent,
-                    linkedPackCodes: updatedCodes,
-                  });
-                  setUnlinkConfirmChild(null);
-                  playPop();
-                }}
+                onClick={confirmUnlink}
                 className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs shadow-md cursor-pointer"
               >
                 نعم، فك الارتباط
