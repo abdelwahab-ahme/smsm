@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, ParentProfile, UserRole } from './types';
-import { getChildrenByParentId, createChildProfileInDb, updateChildProfileInDb } from './lib/samasmDatabase';
-import { testSupabaseConnection } from './lib/samasmDatabase'; // تأكد من صحة المسار
+import { supabase } from './lib/supabase';
+import { 
+  getChildrenByParentId, 
+  createChildProfileInDb, 
+  updateChildProfileInDb, 
+  testSupabaseConnection 
+} from './lib/samasmDatabase';
 import { 
   getStoredProfiles, 
   saveProfiles, 
@@ -52,8 +57,12 @@ function AppContent() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => getStoredDarkMode());
 
   const { playClick, isMuted, toggleSound } = useSound();
+
+  // ----------------------------------------------------
+  // 🌐 Supabase Integration & Initial Load
+  // ----------------------------------------------------
   useEffect(() => {
-    // تشغيل اختبار الاتصال تلقائياً عند فتح الموقع
+    // 1. اختبار اتصال قاعدة البيانات
     testSupabaseConnection().then((result) => {
       if (result.success) {
         console.log('✅ Supabase متصل بنجاح مع Vercel!', result.data);
@@ -61,7 +70,41 @@ function AppContent() {
         console.error('❌ خطأ في الاتصال بـ Supabase:', result.error);
       }
     });
+
+    // 2. جلب جميع الحسابات (الأبطال) من Supabase لتسميع البيانات عبر الأجهزة
+    async function loadAllOnlineProfiles() {
+      try {
+        const { data, error } = await supabase.from('user_profiles').select('*');
+        if (data && !error && data.length > 0) {
+          const onlineProfiles: UserProfile[] = data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            packCode: p.pack_code || '',
+            gender: p.gender || 'boy',
+            avatar: p.avatar || '👦',
+            points: p.points ?? 20,
+            unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
+            lastSolvedDate: p.last_solved_date,
+            solvedChallengesCount: p.solved_challenges_count ?? 0,
+            solvedCategories: p.solved_categories || [],
+            retryCount: p.retry_count ?? 0,
+            mathSpeedHighScore: p.math_speed_high_score ?? 0,
+            wheelSpinsCount: p.wheel_spins_count ?? 0,
+            labPointsEarned: p.lab_points_earned ?? 0,
+            createdAt: p.created_at,
+          }));
+
+          setProfiles(onlineProfiles);
+          saveProfiles(onlineProfiles);
+        }
+      } catch (err) {
+        console.error('Failed to sync online profiles from Supabase:', err);
+      }
+    }
+
+    loadAllOnlineProfiles();
   }, []);
+
   // Dark Mode Sync with DOM
   useEffect(() => {
     if (isDarkMode) {
@@ -103,7 +146,7 @@ function AppContent() {
       createdAt: new Date().toISOString(),
     };
 
-    // حفظ الطفل في Supabase إذا كان ولي الأمر مسجل الدخول
+    // حفظ الطفل في Supabase أونلاين
     await createChildProfileInDb(newProfile, activeParentId || undefined);
 
     const updated = [...profiles, newProfile];
@@ -138,7 +181,7 @@ function AppContent() {
     setProfiles(updatedList);
     saveProfiles(updatedList);
 
-    // تحديث تقدم الطفل في Supabase مباشرة
+    // تحديث تقدم الطفل في Supabase أونلاين فوراً
     await updateChildProfileInDb(updated.id, updated);
   };
 
@@ -152,11 +195,10 @@ function AppContent() {
     }
   };
 
- // ----------------------------------------------------
-  // Parent Handlers (تصحيح وتحديث)
+  // ----------------------------------------------------
+  // Parent Handlers
   // ----------------------------------------------------
   const handleParentLogin = (parent: ParentProfile) => {
-    // 1. ضمان إضافة أو تحديث ولي الأمر في القائمة الحالية والمخزنة
     setParents((prevParents) => {
       const exists = prevParents.some((p) => p.id === parent.id || p.email.toLowerCase() === parent.email.toLowerCase());
       const updatedList = exists 
@@ -166,7 +208,6 @@ function AppContent() {
       return updatedList;
     });
 
-    // 2. ضبط الحساب النشط والدور الحالي
     setActiveParentIdState(parent.id);
     setActiveParentId(parent.id);
     setActiveRoleState('parent');
@@ -174,19 +215,17 @@ function AppContent() {
     setIsLoggedIn(true);
   };
 
-  const handleRegisterParentWithChildren = (
+  const handleRegisterParentWithChildren = async (
     parentData: { name: string; email: string },
     childrenList: { name: string; packCode: string }[]
   ) => {
-    // 1. Create or match child profiles
     const updatedProfilesList = [...profiles];
     const linkedCodes: string[] = [];
 
-    childrenList.forEach((child) => {
+    for (const child of childrenList) {
       const cleanCode = child.packCode.trim().toUpperCase();
       linkedCodes.push(cleanCode);
 
-      // Check if profile exists; if not, auto-create
       const exists = updatedProfilesList.some(
         (p) => p.packCode.toUpperCase() === cleanCode
       );
@@ -205,14 +244,16 @@ function AppContent() {
           solvedCategories: [],
           createdAt: new Date().toISOString(),
         };
+
+        // رفع الطفل الجديد لـ Supabase
+        await createChildProfileInDb(newChildProfile);
         updatedProfilesList.push(newChildProfile);
       }
-    });
+    }
 
     setProfiles(updatedProfilesList);
     saveProfiles(updatedProfilesList);
 
-    // 2. Create and store parent profile
     const newParent: ParentProfile = {
       id: 'parent-' + Date.now(),
       name: parentData.name.trim() || 'ولي أمر',
@@ -322,7 +363,7 @@ function AppContent() {
     );
   }
 
-// ========================================================
+  // ========================================================
   // 2. PARENT ROLE VIEW (ISOLATED TO PARENT DASHBOARD)
   // ========================================================
   if (activeRole === 'parent') {
