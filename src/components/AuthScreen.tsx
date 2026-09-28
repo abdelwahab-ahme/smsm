@@ -21,7 +21,8 @@ import {
   Plus, 
   Trash2, 
   Lock,
-  RefreshCw
+  RefreshCw,
+  Globe
 } from 'lucide-react';
 import {
   sendParentOtp,
@@ -535,16 +536,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <div className="space-y-4">
                   <div className="p-3 rounded-2xl bg-linear-to-r from-purple-50 to-pink-50 dark:from-purple-950/40 dark:to-pink-950/40 border border-purple-200 dark:border-purple-800 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-purple-950 dark:text-purple-200">
-                      <Smartphone className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                      <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       <div className="text-right">
                         <span className="text-[11px] font-bold block text-slate-500 dark:text-slate-400">
-                          الحسابات المتاحة أونلاين:
+                          قاعدة البيانات الأونلاين (Supabase):
                         </span>
                         <span className="text-xs font-black text-purple-950 dark:text-white">
                           {profiles.length > 0 ? (
-                            <>يوجد <strong className="font-mono text-purple-700 dark:text-purple-300">{profiles.length}</strong> حساب بطل جاهز للدخول</>
+                            <>تم جلب <strong className="font-mono text-purple-700 dark:text-purple-300">{profiles.length}</strong> بطل مسجل أونلاين</>
                           ) : (
-                            'جاري التحقق من الحسابات أونلاين...'
+                            'جاري الاتصال بالداتابيز أونلاين...'
                           )}
                         </span>
                       </div>
@@ -638,9 +639,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     </div>
                   ) : (
                     <div className="text-center py-6 space-y-2.5">
-                      <div className="text-3xl">📱</div>
+                      <div className="text-3xl">🌐</div>
                       <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
-                        لا توجد حسابات أبطال مسجلة حتى الآن.
+                        لا توجد حسابات أبطال مسجلة في قاعدة البيانات حالياً.
                       </p>
                       <button
                         onClick={() => {
@@ -769,7 +770,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     className="w-full py-3 px-4 rounded-2xl bg-linear-to-r from-pink-500 via-rose-500 to-amber-500 hover:from-pink-600 hover:to-rose-600 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Rocket className="w-4 h-4" />
-                    <span>حفظ وبدء مغامرة الاكتشاف! 🚀</span>
+                    <span>حفظ أونلاين وبدء مغامرة الاكتشاف! 🚀</span>
                   </button>
                 </form>
               )}
@@ -964,7 +965,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     type="submit"
                     className="w-full py-3 px-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
-                    إنشاء وربط الحسابات 🚀
+                    إنشاء وربط الحسابات أونلاين 🚀
                   </button>
                 </form>
               )}
