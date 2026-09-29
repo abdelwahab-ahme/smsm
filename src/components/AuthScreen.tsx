@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile, Gender, ParentProfile } from '../types';
+import { UserProfile, Gender, Religion, ParentProfile } from '../types';
 import { useSound } from '../context/SoundContext';
 import { verifyAdminEmail, verifyAdminPin } from '../utils/storage';
 import { supabase } from '../lib/supabase';
@@ -80,7 +80,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const refreshDeviceProfiles = async () => {
     setIsRefreshing(true);
     try {
-      // 1. قراءة الأكواد المحفوظة محلياً على هذا الجهاز
       const localPackCodes: string[] = JSON.parse(
         localStorage.getItem('local_device_pack_codes') || '[]'
       );
@@ -91,7 +90,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         return;
       }
 
-      // 2. جلب الحسابات الخاصة بهذه الأكواد فقط من Supabase
       const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
@@ -104,6 +102,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           packCode: p.pack_code || '',
           gender: p.gender || 'boy',
           avatar: p.avatar || '👦',
+          religion: p.religion || 'muslim',
           points: p.points ?? 20,
           unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
           lastSolvedDate: p.last_solved_date,
@@ -128,7 +127,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     refreshDeviceProfiles();
   }, []);
 
-  // Primary Role Selection: 'child' | 'parent' | 'admin'
+  // Role Selection: 'child' | 'parent' | 'admin'
   const [selectedRole, setSelectedRole] = useState<'child' | 'parent' | 'admin'>('child');
 
   // Child Tab State
@@ -137,6 +136,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [packCode, setPackCode] = useState('');
   const [email, setEmail] = useState('');
   const [gender, setGender] = useState<Gender>('boy');
+  const [religion, setReligion] = useState<Religion>('muslim'); // 👈 إضافة الـ State في المكان الصحيح
   const [selectedAvatar, setSelectedAvatar] = useState('👦');
   const [regError, setRegError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -201,6 +201,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       packCode: cleanPackCode,
       email: email.trim().toLowerCase() || undefined,
       gender,
+      religion, // 👈 حفظ خيار المحتوى الديني
       avatar: selectedAvatar,
     });
 
@@ -225,7 +226,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     const clean = searchQuery.trim().toLowerCase();
     
-    // البحث أولاً في قائمة الجهاز الحالية
     let matched = profiles.find(
       (p) =>
         p.packCode.toLowerCase() === clean ||
@@ -233,7 +233,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         (p.email && p.email.toLowerCase() === clean)
     );
 
-    // إذا لم يجده في القائمة المحلية، يبحث في Supabase مباشرة (لكي يتم تعريفه على هذا الجهاز)
     if (!matched) {
       try {
         const { data } = await supabase
@@ -249,6 +248,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             packCode: p.pack_code || '',
             gender: p.gender || 'boy',
             avatar: p.avatar || '👦',
+            religion: p.religion || 'muslim',
             points: p.points ?? 20,
             unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
             lastSolvedDate: p.last_solved_date,
@@ -260,7 +260,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             labPointsEarned: p.lab_points_earned ?? 0,
             createdAt: p.created_at,
           };
-          // حفظ كود الكيس على الجهاز لإظهاره دائماً بعد ذلك
           savePackCodeToDevice(matched.packCode);
           await refreshDeviceProfiles();
         }
@@ -268,7 +267,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         console.error(err);
       }
     } else {
-      // التأكد من حفظه على الجهاز
       savePackCodeToDevice(matched.packCode);
     }
 
@@ -345,7 +343,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         error?.message || 'حدث خطأ أثناء تسجيل الدخول. حاول مرة أخرى.'
       );
       playTryAgain();
-    }  finally {
+    } finally {
       setParentAuthLoading(false);
     }
   };
@@ -385,7 +383,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    // حفظ أطفال ولي الأمر محلياً على هذا الجهاز أيضاً
     validChildren.forEach(child => savePackCodeToDevice(child.packCode));
 
     onRegisterParentWithChildren(
@@ -512,7 +509,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           </p>
         </div>
 
-        {/* 1. ROLE SELECTOR TABS (CHILD / PARENT / ADMIN) */}
+        {/* ROLE SELECTOR TABS */}
         <div className="bg-white/95 dark:bg-slate-900/95 p-1.5 rounded-3xl border-2 border-purple-200 dark:border-purple-900/80 shadow-md grid grid-cols-3 gap-1.5 mb-4">
           <button
             type="button"
@@ -563,10 +560,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           </button>
         </div>
 
-        {/* MAIN BODY CARD PER ROLE */}
+        {/* MAIN BODY CARD */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border-2 border-pink-200 dark:border-indigo-900/80 shadow-xl transition-colors">
           
-          {/* ROLE 1: CHILD VIEW */}
+          {/* CHILD VIEW */}
           {selectedRole === 'child' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-2xl">
@@ -775,13 +772,51 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       اسم {gender === 'girl' ? 'البطلة' : 'البطل'}:
                     </label>
                     <input
-                      type="text"
+                      type="text" 
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder={gender === 'girl' ? 'مثال: سارة، ليان، جنى...' : 'مثال: عمر، يوسف، أحمد...'}
                       className="w-full px-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs sm:text-sm"
                       required
                     />
+                  </div>
+
+                  {/* 👈 اختيار المحتوى الديني في المكان الصحيح */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+                      تفعيل المحتوى الديني (الإسلاميات):
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playPop();
+                          setReligion('muslim');
+                        }}
+                        className={`py-2 px-3 rounded-2xl border-2 font-black text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          religion === 'muslim'
+                            ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/50 text-amber-950 dark:text-amber-200 ring-2 ring-amber-300'
+                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        <span>🌙 قسم الإسلاميات</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playPop();
+                          setReligion('other');
+                        }}
+                        className={`py-2 px-3 rounded-2xl border-2 font-black text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          religion !== 'muslim'
+                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/50 text-purple-950 dark:text-purple-200 ring-2 ring-purple-300'
+                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        <span>✨ عام / ثقافة وأخلاقيات</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div>
@@ -855,7 +890,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           )}
 
-          {/* ROLE 2: PARENT VIEW */}
+          {/* PARENT VIEW */}
           {selectedRole === 'parent' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-1.5 bg-purple-50 dark:bg-slate-800/80 p-1 rounded-2xl">
@@ -1050,7 +1085,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           )}
 
-          {/* ROLE 3: ADMIN VIEW */}
+          {/* ADMIN VIEW */}
           {selectedRole === 'admin' && (
             <div className="space-y-4">
               <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 flex items-center gap-2 text-red-950 dark:text-red-200">

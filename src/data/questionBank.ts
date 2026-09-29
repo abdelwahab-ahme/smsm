@@ -1,4 +1,15 @@
-import { BankQuestion, QuestionCategory } from '../types';
+import { BankQuestion, UserProfile } from '../types';
+
+// دالة فلترة الأسئلة قبل عرضها للطفل
+export const getQuestionsForProfile = (questions: BankQuestion[], profile: UserProfile) => {
+  return questions.filter((question) => {
+    // إذا كان السؤال إسلامياً والطفل ليس مسلماً (أو لم يفعل قسم الإسلاميات)، استبعد السؤال
+    if ((question as any).isIslamic && profile.religion !== 'muslim') {
+      return false;
+    }
+    return true;
+  });
+};
 
 export const QUESTION_BANK: BankQuestion[] = [
   // ==========================================
@@ -642,93 +653,78 @@ export const QUESTION_BANK: BankQuestion[] = [
     categoryLabel: 'منطق وذكاء',
     categoryIcon: '🧩',
     categoryColor: 'bg-purple-100 text-purple-950 border-purple-300 dark:bg-purple-950 dark:text-purple-100 dark:border-purple-700',
-    title: 'لغز الصناديق الثلاثة والألوان',
-    question: 'أمامك ثلاثة صناديق مغلقة: صندوق يحتوي على كرات بيضاء فقط، وصندوق يحتوي على كرات حمراء فقط، وصندوق يحتوي على كرات بيضاء وحمراء معاً. جميع الملصقات وُضعت بالخطأ بنسبة 100%! كم كرة تحتاج لسحبها لتصحيح جميع الملصقات؟',
+    title: 'لغز الشيء الذي يحملك ولا يمكنك رؤيته',
+    question: 'شيء يحيط بك في كل مكان ويحملك ويحمل الطائرات السحابية في السماء، لكنك لا تستطيع لمسه أو رؤيته بعينيك.. ما هو؟',
     options: [
-      { id: 'a', text: 'كرة واحدة فقط من الصندوق المكتوب عليه (مختلط)!' },
-      { id: 'b', text: '3 كرات من كل صندوق' },
-      { id: 'c', text: '10 كرات' },
-      { id: 'd', text: 'لا يمكن معرفتها أبداً' },
+      { id: 'a', text: 'الهواء (الغلاف الجوي)' },
+      { id: 'b', text: 'الضوء' },
+      { id: 'c', text: 'الماء' },
+      { id: 'd', text: 'الظلام' },
     ],
     correctOptionId: 'a',
-    explanation: 'لغز عبقري! بما أن كل الملصقات خاطئة، فالصندوق المسمى (مختلط) يحتوي حتماً إما على بيضاء فقط أو حمراء فقط! إذا سحبت منه كرة واحدة وظهرت حمراء، فهذا صندوق الأحمر بالكامل. وبما أن الصندوق المكتوب عليه (أبيض) خطأ، إذن هو المختلط، والثالث هو الأبيض!',
-    funFact: 'هذا اللغز اختبر به علماء الرياضيات قدرات خوارزميات الذكاء الاصطناعي على حل المسائل المعقدة بأقل مدخلات ممكنة!',
-    hint: 'اسحب كرة واحدة من الصندوق الذي تعرف يقيناً أنه ليس مختلطاً!',
-    points: 25,
+    explanation: 'الهواء عبارة عن مزيج من الغازات غير المرئية، ولكنه يمتلك كتلة وضغطاً ويحمل الطائرات والطيور عند تحرك أجنحتها فوقه!',
+    funFact: 'رغم أننا لا نرى الهواء، إلا أن الغلاف الجوي المحيط بالأرض يزن آلاف المليارات من الأطنان!',
+    hint: 'نتنفسه طوال الوقت ولا يمكننا العيش بدونه.',
+    points: 15,
   },
+  
 ];
 
-export function getDynamicQuestionBank(): BankQuestion[] {
-  if (typeof window === 'undefined') return QUESTION_BANK;
-  try {
-    const raw = localStorage.getItem('samasm_custom_qbank_v1');
-    if (!raw) return QUESTION_BANK;
-    const parsed = JSON.parse(raw) as BankQuestion[];
-    return parsed.length > 0 ? parsed : QUESTION_BANK;
-  } catch {
-    return QUESTION_BANK;
-  }
-}
 
-/**
- * Smart Randomization:
- * Returns an un-solved question from the bank matching the category.
- * If all are solved, returns { question: randomFromAll, isExhausted: true }.
- */
+// 1. دالة اختار سؤال ذكي بناءً على ملف الطفل والأسئلة المحلولة سابقاً
 export function getSmartBankQuestion(
-  category: QuestionCategory | 'all',
-  solvedIds: string[] = []
-): { question: BankQuestion; isExhausted: boolean; remainingCount: number; totalCount: number } {
-  const bank = getDynamicQuestionBank();
-  const categoryPool =
-    category === 'all'
-      ? bank
-      : bank.filter((q) => q.category === category);
+  profile?: UserProfile | null,
+  selectedCategory?: string
+): BankQuestion | null {
+  if (!QUESTION_BANK || QUESTION_BANK.length === 0) return null;
 
-  const totalCount = categoryPool.length;
-  const unsolved = categoryPool.filter((q) => !solvedIds.includes(q.id));
+  let availableQuestions = [...QUESTION_BANK];
 
-  if (unsolved.length > 0) {
-    const randomIndex = Math.floor(Math.random() * unsolved.length);
-    return {
-      question: unsolved[randomIndex],
-      isExhausted: false,
-      remainingCount: unsolved.length,
-      totalCount,
-    };
+  // تصفية الأسئلة بناءً على تفعيل/إلغاء المحتوى الديني
+  if (profile && profile.religion !== 'muslim') {
+    availableQuestions = availableQuestions.filter(
+      (q) => !q.isIslamic && q.category !== 'islamic'
+    );
   }
 
-  // All solved in this category -> smart fallback with isExhausted: true
-  const randomIndex = Math.floor(Math.random() * (categoryPool.length || 1));
-  return {
-    question: categoryPool[randomIndex] || bank[0],
-    isExhausted: true,
-    remainingCount: 0,
-    totalCount,
-  };
+  // تصفية حسب القسم المختار (إن وجد)
+  if (selectedCategory && selectedCategory !== 'all') {
+    availableQuestions = availableQuestions.filter(
+      (q) => q.category === selectedCategory
+    );
+  }
+
+  // استبعاد الأسئلة التي حلها الطفل من قبل (إن أمكن)
+  const solvedIds = profile?.solvedBankQuestionIds || [];
+  const unsolvedQuestions = availableQuestions.filter(
+    (q) => !solvedIds.includes(q.id)
+  );
+
+  // إذا حل جميع الأسئلة، نختار من كل الأسئلة المتاحة عشوائياً
+  const pool = unsolvedQuestions.length > 0 ? unsolvedQuestions : availableQuestions;
+
+  if (pool.length === 0) return null;
+
+  const randomIndex = Math.floor(Math.random() * pool.length);
+  return pool[randomIndex];
 }
 
-/**
- * Returns statistics for each category
- */
-export function getQuestionBankStats(solvedIds: string[] = []) {
-  const categories: QuestionCategory[] = ['science', 'space', 'math', 'logic'];
-  const stats: Record<QuestionCategory, { total: number; solved: number; label: string; icon: string }> = {
-    science: { total: 0, solved: 0, label: 'العلوم', icon: '🔬' },
-    space: { total: 0, solved: 0, label: 'الفضاء', icon: '🚀' },
-    math: { total: 0, solved: 0, label: 'الرياضيات', icon: '🔢' },
-    logic: { total: 0, solved: 0, label: 'منطق وذكاء', icon: '🧩' },
+// 2. دالة إحصائيات بنك الأسئلة
+export function getQuestionBankStats(profile?: UserProfile | null) {
+  let questions = QUESTION_BANK || [];
+
+  if (profile && profile.religion !== 'muslim') {
+    questions = questions.filter((q) => !q.isIslamic && q.category !== 'islamic');
+  }
+
+  const solvedIds = profile?.solvedBankQuestionIds || [];
+  const totalQuestions = questions.length;
+  const solvedCount = questions.filter((q) => solvedIds.includes(q.id)).length;
+
+  return {
+    totalQuestions,
+    solvedCount,
+    remainingCount: Math.max(0, totalQuestions - solvedCount),
+    progressPercentage: totalQuestions > 0 ? Math.round((solvedCount / totalQuestions) * 100) : 0,
   };
-
-  const bank = getDynamicQuestionBank();
-  bank.forEach((q) => {
-    if (stats[q.category]) {
-      stats[q.category].total += 1;
-      if (solvedIds.includes(q.id)) {
-        stats[q.category].solved += 1;
-      }
-    }
-  });
-
-  return stats;
 }
