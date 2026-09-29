@@ -39,10 +39,9 @@ export const QuestionBankExplorer: React.FC<QuestionBankExplorerProps> = ({
   const [isCategoryExhausted, setIsCategoryExhausted] = useState<boolean>(false);
   const [unlockedBadge, setUnlockedBadge] = useState<string | null>(null);
 
-  const solvedIds = activeProfile.solvedBankQuestionIds || [];
-  const stats = getQuestionBankStats(solvedIds);
-  const totalSolvedCount = solvedIds.length;
-  const totalQuestionsCount = QUESTION_BANK.length;
+  const stats = getQuestionBankStats(activeProfile);
+  const totalSolvedCount = stats.solvedCount;
+  const totalQuestionsCount = stats.totalQuestions;
 
   // Load a smart non-repeated question
   const loadNextQuestion = (category = activeCategory) => {
@@ -52,9 +51,9 @@ export const QuestionBankExplorer: React.FC<QuestionBankExplorerProps> = ({
     setAnswerFeedback(null);
     setUnlockedBadge(null);
 
-    const { question, isExhausted } = getSmartBankQuestion(category, solvedIds);
+    const question = getSmartBankQuestion(activeProfile, category);
     setCurrentQuestion(question);
-    setIsCategoryExhausted(isExhausted);
+    setIsCategoryExhausted(false);
   };
 
   // Initial load or on category switch

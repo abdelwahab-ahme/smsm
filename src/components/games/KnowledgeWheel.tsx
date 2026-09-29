@@ -103,12 +103,12 @@ export const KnowledgeWheel: React.FC<KnowledgeWheelProps> = ({
         ? (['science', 'space', 'math', 'logic'][Math.floor(Math.random() * 4)] as QuestionCategory)
         : (chosenSector.id as QuestionCategory);
 
-      const { question } = getSmartBankQuestion(
-        targetCategory,
-        activeProfile.solvedBankQuestionIds || []
-      );
-
-      setActiveQuestion(question);
+        const question = getSmartBankQuestion(
+          activeProfile,
+          targetCategory
+        );
+        
+        setActiveQuestion(question);
     }, 3800);
   };
 
