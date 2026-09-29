@@ -667,9 +667,6 @@ export const QUESTION_BANK: BankQuestion[] = [
     hint: 'نتنفسه طوال الوقت ولا يمكننا العيش بدونه.',
     points: 15,
   },
-  
-];
-export const ISLAMIC_QUESTIONS = [
   {
     id: 'islamic-1',
     category: 'islamic',
@@ -880,7 +877,10 @@ export const ISLAMIC_QUESTIONS = [
     hint: 'اشتهر بقصة السفينة والطوفان.',
     points: 15,
   },
+
 ];
+
+  
 
 
 // 1. دالة اختار سؤال ذكي بناءً على ملف الطفل والأسئلة المحلولة سابقاً
