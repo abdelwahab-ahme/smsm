@@ -31,6 +31,9 @@ export const QuestionBankExplorer: React.FC<QuestionBankExplorerProps> = ({
   const isGirl = activeProfile.gender === 'girl';
   const { playClick, playPop, playChime, playPointsEarned, playSuccessWhistle, playTryAgain, playBadgeUnlock } = useSound();
 
+  // تعريف قائمة الأسئلة المحلولة بأمان لمنع الانهيار
+  const solvedIds = activeProfile.solvedBankQuestionIds || [];
+
   const [activeCategory, setActiveCategory] = useState<QuestionCategory | 'all'>('all');
   const [currentQuestion, setCurrentQuestion] = useState<BankQuestion | null>(null);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
@@ -76,7 +79,7 @@ export const QuestionBankExplorer: React.FC<QuestionBankExplorerProps> = ({
         ? solvedIds
         : [...solvedIds, currentQuestion.id];
 
-      const updatedBadgeIds = [...activeProfile.unlockedBadgeIds];
+      const updatedBadgeIds = [...(activeProfile.unlockedBadgeIds || [])];
       let newBadgeAwarded: string | null = null;
 
       // 10 questions solved badge
