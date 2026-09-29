@@ -48,6 +48,19 @@ interface AuthScreenProps {
 
 const AVATAR_OPTIONS = ['👦', '👧', '🍭', '🚀', '🧠', '🌟', '🦁', '🐱', '🔬', '🎨', '⚡', '👑'];
 
+// 📱 دالة مساعدة لحفظ كود الكيس على هذا الجهاز فقط
+const savePackCodeToDevice = (code: string) => {
+  if (!code) return;
+  const cleanCode = code.trim().toUpperCase();
+  const savedCodes: string[] = JSON.parse(
+    localStorage.getItem('local_device_pack_codes') || '[]'
+  );
+  if (!savedCodes.includes(cleanCode)) {
+    savedCodes.push(cleanCode);
+    localStorage.setItem('local_device_pack_codes', JSON.stringify(savedCodes));
+  }
+};
+
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   profiles: initialProfiles,
   parents,
@@ -59,19 +72,31 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   isDarkMode,
   onToggleDarkMode,
 }) => {
-  // 🌐 Online Profiles State
-  const [profiles, setProfiles] = useState<UserProfile[]>(initialProfiles);
+  // 🌐 Online Device Profiles State
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    setProfiles(initialProfiles);
-  }, [initialProfiles]);
-
-  // دالة لجلب الحسابات أونلاين مباشرة
-  const refreshOnlineProfiles = async () => {
+  // دالة لجلب الحسابات المسجلة على هذا الجهاز فقط أونلاين من Supabase
+  const refreshDeviceProfiles = async () => {
     setIsRefreshing(true);
     try {
-      const { data, error } = await supabase.from('user_profiles').select('*');
+      // 1. قراءة الأكواد المحفوظة محلياً على هذا الجهاز
+      const localPackCodes: string[] = JSON.parse(
+        localStorage.getItem('local_device_pack_codes') || '[]'
+      );
+
+      if (localPackCodes.length === 0) {
+        setProfiles([]);
+        setIsRefreshing(false);
+        return;
+      }
+
+      // 2. جلب الحسابات الخاصة بهذه الأكواد فقط من Supabase
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .in('pack_code', localPackCodes);
+
       if (data && !error) {
         const fetchedProfiles: UserProfile[] = data.map((p: any) => ({
           id: p.id,
@@ -93,14 +118,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         setProfiles(fetchedProfiles);
       }
     } catch (err) {
-      console.error('Error fetching online profiles:', err);
+      console.error('Error fetching device profiles:', err);
     } finally {
       setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    refreshOnlineProfiles();
+    refreshDeviceProfiles();
   }, []);
 
   // Primary Role Selection: 'child' | 'parent' | 'admin'
@@ -165,14 +190,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
+    const cleanPackCode = packCode.trim().toUpperCase();
+
+    // 1. حفظ كود الطفل على هذا الجهاز محلياً
+    savePackCodeToDevice(cleanPackCode);
+
     setRegError('');
     onCreateProfile({
       name: name.trim(),
-      packCode: packCode.trim().toUpperCase(),
+      packCode: cleanPackCode,
       email: email.trim().toLowerCase() || undefined,
       gender,
       avatar: selectedAvatar,
     });
+
+    // إعادة تحديث القائمة لإظهار الحساب الجديد فوراً
+    refreshDeviceProfiles();
 
     confetti({
       particleCount: 70,
@@ -182,7 +215,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     playBadgeUnlock();
   };
 
-  const handleDirectChildLogin = (e: React.FormEvent) => {
+  const handleDirectChildLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
       setChildLoginError('يرجى إدخال كود الكيس أو الإيميل للبحث');
@@ -191,12 +224,53 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
 
     const clean = searchQuery.trim().toLowerCase();
-    const matched = profiles.find(
+    
+    // البحث أولاً في قائمة الجهاز الحالية
+    let matched = profiles.find(
       (p) =>
         p.packCode.toLowerCase() === clean ||
         p.name.trim().toLowerCase() === clean ||
         (p.email && p.email.toLowerCase() === clean)
     );
+
+    // إذا لم يجده في القائمة المحلية، يبحث في Supabase مباشرة (لكي يتم تعريفه على هذا الجهاز)
+    if (!matched) {
+      try {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .or(`pack_code.ilike.${clean},name.ilike.${clean}`);
+
+        if (data && data.length > 0) {
+          const p = data[0];
+          matched = {
+            id: p.id,
+            name: p.name,
+            packCode: p.pack_code || '',
+            gender: p.gender || 'boy',
+            avatar: p.avatar || '👦',
+            points: p.points ?? 20,
+            unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
+            lastSolvedDate: p.last_solved_date,
+            solvedChallengesCount: p.solved_challenges_count ?? 0,
+            solvedCategories: p.solved_categories || [],
+            retryCount: p.retry_count ?? 0,
+            mathSpeedHighScore: p.math_speed_high_score ?? 0,
+            wheelSpinsCount: p.wheel_spins_count ?? 0,
+            labPointsEarned: p.lab_points_earned ?? 0,
+            createdAt: p.created_at,
+          };
+          // حفظ كود الكيس على الجهاز لإظهاره دائماً بعد ذلك
+          savePackCodeToDevice(matched.packCode);
+          await refreshDeviceProfiles();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      // التأكد من حفظه على الجهاز
+      savePackCodeToDevice(matched.packCode);
+    }
 
     if (matched) {
       setChildLoginError('');
@@ -311,11 +385,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
+    // حفظ أطفال ولي الأمر محلياً على هذا الجهاز أيضاً
+    validChildren.forEach(child => savePackCodeToDevice(child.packCode));
+
     onRegisterParentWithChildren(
       { name: parentRegName.trim(), email: parentRegEmail.trim().toLowerCase() },
       validChildren
     );
 
+    refreshDeviceProfiles();
     playSuccessWhistle();
   };
 
@@ -539,20 +617,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       <div className="text-right">
                         <span className="text-[11px] font-bold block text-slate-500 dark:text-slate-400">
-                          قاعدة البيانات الأونلاين (Supabase):
+                          حسابات هذا الجهاز أونلاين:
                         </span>
                         <span className="text-xs font-black text-purple-950 dark:text-white">
                           {profiles.length > 0 ? (
-                            <>تم جلب <strong className="font-mono text-purple-700 dark:text-purple-300">{profiles.length}</strong> بطل مسجل أونلاين</>
+                            <>تم جلب <strong className="font-mono text-purple-700 dark:text-purple-300">{profiles.length}</strong> بطل مسجل على هذا الجهاز</>
                           ) : (
-                            'جاري الاتصال بالداتابيز أونلاين...'
+                            'لا توجد حسابات مسجلة على هذا الجهاز بعد'
                           )}
                         </span>
                       </div>
                     </div>
 
                     <button
-                      onClick={refreshOnlineProfiles}
+                      onClick={refreshDeviceProfiles}
                       disabled={isRefreshing}
                       className="p-2 rounded-xl bg-purple-100 dark:bg-purple-900/60 hover:bg-purple-200 text-purple-700 dark:text-purple-300 transition-colors cursor-pointer flex items-center justify-center"
                       title="تحديث البيانات أونلاين"
@@ -567,7 +645,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="ادخل كود الكيس أو الإيميل (مثال: SMSM-7701)"
+                        placeholder="ادخل كود الكيس أو الاسم (مثال: SMSM-7701)"
                         className="w-full pl-12 pr-3.5 py-2.5 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-950 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:border-pink-500 font-mono font-bold text-xs"
                       />
                       <button
@@ -639,9 +717,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     </div>
                   ) : (
                     <div className="text-center py-6 space-y-2.5">
-                      <div className="text-3xl">🌐</div>
+                      <div className="text-3xl">📱</div>
                       <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
-                        لا توجد حسابات أبطال مسجلة في قاعدة البيانات حالياً.
+                        لا توجد حسابات أبطال مسجلة على هذا الجهاز بعد.
                       </p>
                       <button
                         onClick={() => {
