@@ -31,13 +31,15 @@ import {
   isCurrentUserAdmin,
   linkChildByCode,
   createChildForParent,
+  getChildByCode,
+  getChildrenByCodes,
 } from '../lib/samasmDatabase';
 
 interface AuthScreenProps {
   profiles: UserProfile[];
   parents: ParentProfile[];
-  onSelectProfile: (id: string) => void;
-  onCreateProfile: (profile: Omit<UserProfile, 'id' | 'points' | 'unlockedBadgeIds' | 'lastSolvedDate' | 'solvedChallengesCount' | 'createdAt'>) => void;
+  onSelectProfile: (id: string, profile?: UserProfile) => void;
+  onCreateProfile: (profile: Omit<UserProfile, 'id' | 'points' | 'unlockedBadgeIds' | 'lastSolvedDate' | 'solvedChallengesCount' | 'createdAt'>) => Promise<boolean>;
   onParentLogin: (parent: ParentProfile) => void;
   onRegisterParentWithChildren: (
     parentData: { name: string; email: string },
@@ -85,46 +87,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       const localPackCodes: string[] = JSON.parse(
         localStorage.getItem('local_device_pack_codes') || '[]'
       );
-
       if (localPackCodes.length === 0) {
         setProfiles([]);
-        setIsRefreshing(false);
         return;
       }
-
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .in('pack_code', localPackCodes);
-
-      if (data && !error) {
-        const fetchedProfiles: UserProfile[] = data.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          packCode: p.pack_code || '',
-          gender: p.gender || 'boy',
-          avatar: p.avatar || '👦',
-          religion: p.religion || 'muslim',
-          points: p.points ?? 20,
-          unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
-          lastSolvedDate: p.last_solved_date,
-          solvedChallengesCount: p.solved_challenges_count ?? 0,
-          solvedCategories: p.solved_categories || [],
-          retryCount: p.retry_count ?? 0,
-          mathSpeedHighScore: p.math_speed_high_score ?? 0,
-          wheelSpinsCount: p.wheel_spins_count ?? 0,
-          labPointsEarned: p.lab_points_earned ?? 0,
-          createdAt: p.created_at,
-        }));
-        setProfiles(fetchedProfiles);
-      }
+      setProfiles(await getChildrenByCodes(localPackCodes));
     } catch (err) {
       console.error('Error fetching device profiles:', err);
     } finally {
       setIsRefreshing(false);
     }
   };
-
   useEffect(() => {
     refreshDeviceProfiles();
   }, []);
@@ -182,7 +155,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  const handleRegisterChildSubmit = (e: React.FormEvent) => {
+  const handleRegisterChildSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       setRegError('يرجى كتابة اسم البطل أو البطلة!');
@@ -196,95 +169,59 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
 
     const cleanPackCode = packCode.trim().toUpperCase();
-
-    // 1. حفظ كود الطفل على هذا الجهاز محلياً
-    savePackCodeToDevice(cleanPackCode);
-
     setRegError('');
-    onCreateProfile({
+
+    const created = await onCreateProfile({
       name: name.trim(),
       packCode: cleanPackCode,
       email: email.trim().toLowerCase() || undefined,
       gender,
-      religion, // 👈 حفظ خيار المحتوى الديني
+      religion,
       avatar: selectedAvatar,
     });
 
-    // إعادة تحديث القائمة لإظهار الحساب الجديد فوراً
-    refreshDeviceProfiles();
+    if (!created) {
+      setRegError('تعذر إنشاء الحساب. ربما كود الكيس مستخدم من قبل، جرّب كوداً آخر.');
+      playTryAgain();
+      return;
+    }
 
-    confetti({
-      particleCount: 70,
-      spread: 70,
-      origin: { y: 0.6 },
-    });
+    savePackCodeToDevice(cleanPackCode);
+    confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
     playBadgeUnlock();
   };
-
   const handleDirectChildLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
-      setChildLoginError('يرجى إدخال كود الكيس أو الإيميل للبحث');
+      setChildLoginError('يرجى إدخال كود الكيس للبحث');
       playTryAgain();
       return;
     }
 
     const clean = searchQuery.trim().toLowerCase();
-    
-    let matched = profiles.find(
-      (p) =>
-        p.packCode.toLowerCase() === clean ||
-        p.name.trim().toLowerCase() === clean ||
-        (p.email && p.email.toLowerCase() === clean)
-    );
+
+    let matched: UserProfile | null =
+      profiles.find(
+        (p) =>
+          p.packCode.toLowerCase() === clean ||
+          p.name.trim().toLowerCase() === clean ||
+          (p.email && p.email.toLowerCase() === clean)
+      ) ?? null;
 
     if (!matched) {
-      try {
-        const { data } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('pack_code', clean.toUpperCase());
-
-        if (data && data.length > 0) {
-          const p = data[0];
-          matched = {
-            id: p.id,
-            name: p.name,
-            packCode: p.pack_code || '',
-            gender: p.gender || 'boy',
-            avatar: p.avatar || '👦',
-            religion: p.religion || 'muslim',
-            points: p.points ?? 20,
-            unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
-            lastSolvedDate: p.last_solved_date,
-            solvedChallengesCount: p.solved_challenges_count ?? 0,
-            solvedCategories: p.solved_categories || [],
-            retryCount: p.retry_count ?? 0,
-            mathSpeedHighScore: p.math_speed_high_score ?? 0,
-            wheelSpinsCount: p.wheel_spins_count ?? 0,
-            labPointsEarned: p.lab_points_earned ?? 0,
-            createdAt: p.created_at,
-          };
-          savePackCodeToDevice(matched.packCode);
-          await refreshDeviceProfiles();
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    } else {
-      savePackCodeToDevice(matched.packCode);
+      matched = await getChildByCode(clean);
     }
 
     if (matched) {
+      savePackCodeToDevice(matched.packCode);
       setChildLoginError('');
       playClick();
-      onSelectProfile(matched.id);
+      onSelectProfile(matched.id, matched);
     } else {
-      setChildLoginError(`لم نعثر على حساب مسجل بكود أو إيميل "${searchQuery}". تأكد من البيانات أو أنشئ حساباً جديداً!`);
+      setChildLoginError(`لم نعثر على حساب مسجل بكود "${searchQuery}". تأكد من الكود أو أنشئ حساباً جديداً!`);
       playTryAgain();
     }
   };
-
   // Parent Handlers
   const handleParentLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -773,7 +710,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             key={p.id}
                             onClick={() => {
                               playClick();
-                              onSelectProfile(p.id);
+                              onSelectProfile(p.id, p);
                             }}
                             className="cursor-pointer p-2.5 rounded-2xl border-2 border-pink-100 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-600 bg-pink-50/40 dark:bg-slate-800/50 hover:bg-pink-50 dark:hover:bg-slate-800 transition-all flex items-center justify-between group active:scale-98"
                           >

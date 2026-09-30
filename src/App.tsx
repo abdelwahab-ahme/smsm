@@ -15,6 +15,9 @@ import {
   testSupabaseConnection,
   loadAdminData,
   createParentByAdmin,
+  getChildByCode,
+  registerChildProfile,
+  saveChildProgress,
 } from './lib/samasmDatabase';
 import { logAction } from './lib/audit';
 
@@ -116,9 +119,9 @@ function AppContent() {
           }
         }
 
-        const savedChildId = localStorage.getItem(ACTIVE_CHILD_KEY);
-        if (savedChildId) {
-          const child = await getUserProfileById(savedChildId);
+        const savedChildCode = localStorage.getItem(ACTIVE_CHILD_KEY);
+        if (savedChildCode) {
+          const child = await getChildByCode(savedChildCode);
           if (!mounted) return;
           if (child) {
             setProfiles((prev) => (prev.some((p) => p.id === child.id) ? prev : [...prev, child]));
@@ -160,15 +163,17 @@ function AppContent() {
   // ----------------------------------------------------
   // Child Profile Handlers
   // ----------------------------------------------------
-  const handleSelectProfile = async (id: string) => {
-    // لو بيانات الطفل مش في الـ state (اتسجل من جهاز تاني مثلاً) هاتها من الداتابيز
-    if (!profiles.some((p) => p.id === id)) {
-      const fetched = await getUserProfileById(id);
-      if (fetched) {
-        setProfiles((prev) => (prev.some((p) => p.id === fetched.id) ? prev : [...prev, fetched]));
-      }
+  const handleSelectProfile = (id: string, profile?: UserProfile) => {
+    if (profile) {
+      setProfiles((prev) =>
+        prev.some((p) => p.id === profile.id)
+          ? prev.map((p) => (p.id === profile.id ? profile : p))
+          : [...prev, profile]
+      );
     }
-    localStorage.setItem(ACTIVE_CHILD_KEY, id);
+    const known = profile ?? profiles.find((p) => p.id === id);
+    if (known) localStorage.setItem(ACTIVE_CHILD_KEY, known.packCode);
+
     setActiveProfileIdState(id);
     setActiveRoleState('child');
     setIsLoggedIn(true);
@@ -176,31 +181,31 @@ function AppContent() {
     logAction('child_login', { entity: 'user_profiles', entityId: id });
   };
 
-  const handleCreateProfile = async (data: Omit<UserProfile, 'id' | 'points' | 'unlockedBadgeIds' | 'lastSolvedDate' | 'solvedChallengesCount' | 'createdAt'>) => {
-    const newProfile: UserProfile = {
-      ...data,
-      id: crypto.randomUUID(),
-      points: 20,
-      unlockedBadgeIds: ['curiosity_spark'],
-      lastSolvedDate: null,
-      solvedChallengesCount: 0,
-      solvedCategories: [],
-      createdAt: new Date().toISOString(),
-    };
+  const handleCreateProfile = async (
+    data: Omit<UserProfile, 'id' | 'points' | 'unlockedBadgeIds' | 'lastSolvedDate' | 'solvedChallengesCount' | 'createdAt'>
+  ): Promise<boolean> => {
+    try {
+      const created = await registerChildProfile({
+        name: data.name,
+        packCode: data.packCode,
+        gender: data.gender,
+        avatar: data.avatar,
+        religion: data.religion,
+      });
 
-    const saved = await createChildProfileInDb(newProfile, activeParentId || undefined);
-    if (!saved) {
-      alert('تعذر حفظ الحساب في قاعدة البيانات. ربما كود الكيس مستخدم من قبل، أو حدثت مشكلة اتصال.');
-      return;
+      setProfiles((prev) => [...prev.filter((p) => p.id !== created.id), created]);
+      localStorage.setItem(ACTIVE_CHILD_KEY, created.packCode);
+      setActiveProfileIdState(created.id);
+      setActiveRoleState('child');
+      setIsProfileModalOpen(false);
+      setIsLoggedIn(true);
+      setCurrentTab('challenge');
+      logAction('child_registered', { entity: 'user_profiles', entityId: created.id });
+      return true;
+    } catch (err) {
+      console.error('❌ register child failed:', err);
+      return false;
     }
-
-    setProfiles((prev) => [...prev, newProfile]);
-    localStorage.setItem(ACTIVE_CHILD_KEY, newProfile.id);
-    setActiveProfileIdState(newProfile.id);
-    setActiveRoleState('child');
-    setIsProfileModalOpen(false);
-    setIsLoggedIn(true);
-    setCurrentTab('challenge');
   };
 
   const handleDeleteProfile = async (id: string) => {
@@ -220,7 +225,7 @@ function AppContent() {
   };
   const handleUpdateActiveProfile = async (updated: UserProfile) => {
     setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    const saved = await updateChildProfileInDb(updated.id, updated);
+    const saved = await saveChildProgress(updated);
     if (!saved) {
       console.error('⚠️ تقدم الطفل لم يُحفظ في الداتابيز:', updated.id);
     }

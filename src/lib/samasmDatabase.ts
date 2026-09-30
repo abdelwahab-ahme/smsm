@@ -384,6 +384,7 @@ export function mapProfileRow(p: any): UserProfile {
     mathSpeedHighScore: p.math_speed_high_score ?? 0,
     wheelSpinsCount: p.wheel_spins_count ?? 0,
     labPointsEarned: p.lab_points_earned ?? 0,
+    solvedBankQuestionIds: p.solved_bank_question_ids || [],
     createdAt: p.created_at,
   } as UserProfile;
 }
@@ -632,4 +633,65 @@ export async function deleteParentFromDb(parentId: string): Promise<boolean> {
     return false;
   }
   return true;
+}
+export async function getChildByCode(code: string): Promise<UserProfile | null> {
+  const { data, error } = await supabase.rpc('child_get_by_code', { p_code: code });
+  if (error) {
+    console.error('getChildByCode failed:', error.message);
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? mapProfileRow(row) : null;
+}
+
+export async function getChildrenByCodes(codes: string[]): Promise<UserProfile[]> {
+  if (codes.length === 0) return [];
+  const { data, error } = await supabase.rpc('children_get_by_codes', { p_codes: codes });
+  if (error) {
+    console.error('getChildrenByCodes failed:', error.message);
+    return [];
+  }
+  return (data || []).map(mapProfileRow);
+}
+
+export async function registerChildProfile(input: {
+  name: string;
+  packCode: string;
+  gender: Gender;
+  avatar: string;
+  religion?: string;
+}): Promise<UserProfile> {
+  const { data, error } = await supabase.rpc('child_register', {
+    p_name: input.name,
+    p_code: input.packCode,
+    p_gender: input.gender,
+    p_avatar: input.avatar,
+    p_religion: input.religion ?? 'muslim',
+  });
+  if (error) throw error;
+  return mapProfileRow(Array.isArray(data) ? data[0] : data);
+}
+
+export async function saveChildProgress(p: UserProfile): Promise<UserProfile | null> {
+  const { data, error } = await supabase.rpc('child_save_progress', {
+    p_id: p.id,
+    p_code: p.packCode,
+    p: {
+      points: p.points,
+      unlocked_badge_ids: p.unlockedBadgeIds,
+      last_solved_date: p.lastSolvedDate ?? null,
+      solved_challenges_count: p.solvedChallengesCount,
+      solved_categories: p.solvedCategories ?? [],
+      retry_count: p.retryCount ?? 0,
+      math_speed_high_score: p.mathSpeedHighScore ?? 0,
+      wheel_spins_count: p.wheelSpinsCount ?? 0,
+      lab_points_earned: p.labPointsEarned ?? 0,
+      solved_bank_question_ids: p.solvedBankQuestionIds ?? [],
+    },
+  });
+  if (error) {
+    console.error('❌ saveChildProgress failed:', error.message);
+    return null;
+  }
+  return mapProfileRow(Array.isArray(data) ? data[0] : data);
 }
