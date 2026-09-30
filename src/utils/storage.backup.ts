@@ -470,7 +470,7 @@ export function saveStoredVolume(volume: number) {
 // ----------------------------------------------------
 // Admin Security & Permissions System
 // ----------------------------------------------------
-export const DEFAULT_ADMIN_EMAIL = 'abdelwahabhagag3@samasam.com';
+export const DEFAULT_ADMIN_EMAIL = 'abdelwahabhagag3@gmail.com';
 export const DEFAULT_ADMIN_PIN = '202210609$Admin'; // Default PIN for master admin
 const ADMIN_PIN_KEY = 'samasm_admin_pin_v2';
 const ADMIN_EMAIL_KEY = 'samasm_admin_email_v2';

@@ -440,3 +440,13 @@ export async function testSupabaseConnection() {
     data,
   };
 }
+export async function isCurrentUserAdmin(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_admin');
+
+  if (error) {
+    console.error('Supabase: failed to verify admin role', error);
+    throw error;
+  }
+
+  return Boolean(data);
+}

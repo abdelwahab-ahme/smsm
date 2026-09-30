@@ -29,6 +29,7 @@ import {
   verifyParentOtp,
   getParentByEmail,
   createParentProfile,
+  isCurrentUserAdmin,
 } from '../lib/samasmDatabase';
 
 interface AuthScreenProps {
@@ -160,9 +161,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Admin Tab State
   const [adminEmailInput, setAdminEmailInput] = useState('');
-  const [isAdminEmailVerified, setIsAdminEmailVerified] = useState(false);
-  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminOtpSent, setAdminOtpSent] = useState(false);
+  const [adminOtp, setAdminOtp] = useState('');
   const [adminError, setAdminError] = useState('');
+  const [adminAuthLoading, setAdminAuthLoading] = useState(false);
 
   const { isMuted, toggleSound, playClick, playPop, playBadgeUnlock, playTryAgain, playSuccessWhistle } = useSound();
 
@@ -395,46 +397,74 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   // Admin Handlers
-  const handleVerifyAdminEmail = (e: React.FormEvent) => {
+  const handleAdminOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError('');
-
-    if (!adminEmailInput.trim()) {
-      setAdminError('يرجى إدخال البريد الإلكتروني للمسؤول');
+  
+    const cleanEmail = adminEmailInput.trim().toLowerCase();
+  
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setAdminError('يرجى إدخال بريد إلكتروني صالح لمدير النظام');
       playTryAgain();
       return;
     }
-
-    const isMatch = verifyAdminEmail(adminEmailInput.trim());
-
-    if (!isMatch) {
-      setIsAdminEmailVerified(false);
-      setAdminError('صلاحيتك لا تسمح! هذا البريد غير مصرح له بالدخول كمدير نظام.');
-      playTryAgain();
-    } else {
-      setIsAdminEmailVerified(true);
-      playSuccessWhistle();
-    }
-  };
-
-  const handleAdminPinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAdminError('');
-
-    if (!adminPinInput.trim()) {
-      setAdminError('يرجى كتابة الرمز السري للأدمن');
-      playTryAgain();
-      return;
-    }
-
-    const isValid = verifyAdminPin(adminPinInput.trim());
-
-    if (!isValid) {
-      setAdminError('الرمز السري غير صحيح! يرجى إعادة المحاولة.');
-      playTryAgain();
-    } else {
+  
+    try {
+      setAdminAuthLoading(true);
+  
+      // المرحلة الأولى: إرسال OTP
+      if (!adminOtpSent) {
+        await sendParentOtp(cleanEmail);
+  
+        setAdminOtpSent(true);
+        setAdminOtp('');
+        playSuccessWhistle();
+  
+        return;
+      }
+  
+      // المرحلة الثانية: التحقق من OTP
+      if (!adminOtp.trim()) {
+        setAdminError('يرجى إدخال كود التحقق المرسل إلى بريد الأدمن');
+        playTryAgain();
+        return;
+      }
+  
+      const authResult = await verifyParentOtp(
+        cleanEmail,
+        adminOtp.trim()
+      );
+  
+      if (!authResult.user) {
+        setAdminError('تعذر إنشاء جلسة الأدمن. حاول مرة أخرى.');
+        playTryAgain();
+        return;
+      }
+  
+      // التحقق من أن المستخدم Admin فعلاً
+      const isAdmin = await isCurrentUserAdmin();
+  
+      if (!isAdmin) {
+        setAdminError(
+          'هذا الحساب تم التحقق منه، لكنه لا يمتلك صلاحيات مدير النظام.'
+        );
+        playTryAgain();
+        return;
+      }
+  
       playSuccessWhistle();
       onAdminLogin();
+    } catch (error: any) {
+      console.error('Admin authentication error:', error);
+  
+      setAdminError(
+        error?.message ||
+        'حدث خطأ أثناء إرسال أو التحقق من كود الأدمن.'
+      );
+  
+      playTryAgain();
+    } finally {
+      setAdminAuthLoading(false);
     }
   };
 
@@ -1095,71 +1125,110 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </span>
               </div>
 
-              {!isAdminEmailVerified ? (
-                <form onSubmit={handleVerifyAdminEmail} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                      بريد المسؤول (Admin Email):
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="email"
-                        value={adminEmailInput}
-                        onChange={(e) => setAdminEmailInput(e.target.value)}
-                        placeholder="admin@samasm.com"
-                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
-                        required
-                      />
-                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                    </div>
-                  </div>
+              {!adminOtpSent ? (
+  <form onSubmit={handleAdminOtpSubmit} className="space-y-3">
+    <div>
+      <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+        بريد مدير النظام:
+      </label>
 
-                  {adminError && (
-                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
-                      {adminError}
-                    </p>
-                  )}
+      <div className="relative">
+        <input
+          type="email"
+          value={adminEmailInput}
+          onChange={(e) => {
+            setAdminEmailInput(e.target.value);
+            setAdminError('');
+          }}
+          placeholder="admin@example.com"
+          dir="ltr"
+          className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
+          required
+        />
 
-                  <button
-                    type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
-                  >
-                    التحقق من البريد 🔍
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={handleAdminPinSubmit} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
-                      الرمز السري الخاص بالمسؤول (PIN):
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="password"
-                        value={adminPinInput}
-                        onChange={(e) => setAdminPinInput(e.target.value)}
-                        placeholder="••••"
-                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border-2 border-red-300 dark:border-red-800 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-center tracking-widest text-base"
-                        required
-                      />
-                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                    </div>
-                  </div>
+        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+      </div>
+    </div>
 
-                  {adminError && (
-                    <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
-                      {adminError}
-                    </p>
-                  )}
+    {adminError && (
+      <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
+        {adminError}
+      </p>
+    )}
 
-                  <button
-                    type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
-                  >
-                    فتح لوحة تحكم المسؤول 🔓
-                  </button>
-                </form>
-              )}
+    <button
+      type="submit"
+      disabled={adminAuthLoading}
+      className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer transition-all"
+    >
+      {adminAuthLoading ? 'جاري إرسال رمز التحقق...' : 'إرسال رمز التحقق 📩'}
+    </button>
+  </form>
+) : (
+  <form onSubmit={handleAdminOtpSubmit} className="space-y-3">
+
+    <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 text-emerald-900 dark:text-emerald-200 text-xs font-black flex items-center justify-between gap-2">
+      <span className="flex items-center gap-1.5">
+        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+        تم إرسال رمز التحقق إلى بريد الأدمن
+      </span>
+
+      <button
+        type="button"
+        onClick={() => {
+          setAdminOtpSent(false);
+          setAdminOtp('');
+          setAdminError('');
+        }}
+        className="text-[10px] text-slate-500 underline hover:text-slate-800"
+      >
+        تغيير البريد
+      </button>
+    </div>
+
+    <div>
+      <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+        رمز التحقق OTP:
+      </label>
+
+      <div className="relative">
+        <input
+          type="text"
+          value={adminOtp}
+          onChange={(e) => {
+            setAdminOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+            setAdminError('');
+          }}
+          placeholder="123456"
+          dir="ltr"
+          inputMode="numeric"
+          maxLength={6}
+          autoFocus
+          className="w-full pl-10 pr-3.5 py-3 rounded-xl border-2 border-red-300 dark:border-red-800 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center tracking-[0.5em] text-lg"
+          required
+        />
+
+        <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-4" />
+      </div>
+    </div>
+
+    {adminError && (
+      <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
+        {adminError}
+      </p>
+    )}
+
+    <button
+      type="submit"
+      disabled={adminAuthLoading}
+      className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer transition-all"
+    >
+      {adminAuthLoading
+        ? 'جاري التحقق من صلاحيات الأدمن...'
+        : 'تحقق ودخول لوحة التحكم 🔓'}
+    </button>
+  </form>
+)}
             </div>
           )}
 
