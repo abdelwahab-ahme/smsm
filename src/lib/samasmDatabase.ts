@@ -476,7 +476,7 @@ export async function deleteChildProfileFromDb(profileId: string): Promise<boole
     .select('id');
 
   if (error) {
-    console.error('❌ Delete failed:', error.message);
+    console.error('❌ Delete child failed:', error.message);
     return false;
   }
 
@@ -486,5 +486,22 @@ export async function deleteChildProfileFromDb(profileId: string): Promise<boole
     return false;
   }
 
+  return true;
+}
+export async function deleteParentFromDb(parentId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('parents')
+    .delete()
+    .eq('id', parentId)
+    .select('id');
+
+  if (error) {
+    console.error('❌ Delete parent failed:', error.message);
+    return false;
+  }
+  if (!data || data.length === 0) {
+    console.error('❌ Nothing deleted (RLS blocked or id not found)');
+    return false;
+  }
   return true;
 }

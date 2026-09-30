@@ -24,6 +24,8 @@ import { QUESTION_BANK } from '../data/questionBank';
 import { LAB_EXPERIMENTS } from '../data/labExperiments';
 import { DAILY_CHALLENGES } from '../utils/storage';
 import { useSound } from '../context/SoundContext';
+import { deleteChildProfileFromDb, deleteParentFromDb } from '../lib/samasmDatabase';
+import { logAction } from '../lib/audit';
 import { 
   Shield, 
   Users, 
@@ -191,15 +193,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // ----------------------------------------------------------------
   // 1. STUDENTS ACTIONS
   // ----------------------------------------------------------------
-  const handleConfirmDeleteStudent = () => {
+  const handleConfirmDeleteStudent = async () => {
     if (!deleteConfirmStudent) return;
     const { id, name } = deleteConfirmStudent;
+
+    // الحسابات التجريبية أو المحلية ما لهاش وجود في الداتابيز
+    const isLocalOnly = id.startsWith('hero-') || id.startsWith('demo-hero-');
+    const ok = isLocalOnly ? true : await deleteChildProfileFromDb(id);
+
+    if (!ok) {
+      playTryAgain();
+      showToast('فشل الحذف من قاعدة البيانات ولم يتم حذف الطالب (راجع Console).', 'error');
+      return;
+    }
+
     playPop();
-    const updated = profiles.filter((p) => p.id !== id);
-    onUpdateProfiles(updated);
+    onUpdateProfiles(profiles.filter((p) => p.id !== id));
     setDeleteConfirmStudent(null);
     if (inspectStudent?.id === id) setInspectStudent(null);
     if (editingStudent?.id === id) setEditingStudent(null);
+    logAction('delete_student', { entity: 'user_profiles', entityId: id, details: { name } });
     showToast(`تم حذف حساب الطالب "${name}" بنجاح!`, 'success');
   };
 
@@ -340,15 +353,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     showToast(`تم تسجيل حساب ولي الأمر (${newParent.email}) بنجاح!`, 'success');
   };
 
-  const handleConfirmDeleteParent = () => {
+  const handleConfirmDeleteParent = async () => {
     if (!deleteConfirmParent) return;
-    const updated = parents.filter((p) => p.id !== deleteConfirmParent.id);
-    onUpdateParents(updated);
+    const target = deleteConfirmParent;
+
+    const isLocalOnly = target.id.startsWith('parent-');
+    const ok = isLocalOnly ? true : await deleteParentFromDb(target.id);
+
+    if (!ok) {
+      playTryAgain();
+      showToast('فشل حذف ولي الأمر من قاعدة البيانات (راجع Console).', 'error');
+      return;
+    }
+
+    onUpdateParents(parents.filter((p) => p.id !== target.id));
     setDeleteConfirmParent(null);
     playPop();
-    showToast(`تم حذف حساب ولي الأمر (${deleteConfirmParent.email})!`, 'success');
+    logAction('delete_parent', { entity: 'parents', entityId: target.id, details: { email: target.email } });
+    showToast(`تم حذف حساب ولي الأمر (${target.email})!`, 'success');
   };
-
   // ----------------------------------------------------------------
   // 3. QUESTIONS MANAGEMENT (ADMIN PLATFORM CONTENT CONTROL)
   // ----------------------------------------------------------------
