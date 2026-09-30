@@ -277,6 +277,24 @@ export async function sendParentOtp(email: string) {
   return data;
 }
 
+export async function sendAdminOtp(email: string) {
+  const cleanEmail = email.trim().toLowerCase();
+
+  const { data, error } = await supabase.auth.signInWithOtp({
+    email: cleanEmail,
+    options: {
+      shouldCreateUser: false, // الأدمن لازم يكون له حساب موجود بالفعل
+    },
+  });
+
+  if (error) {
+    console.error('Supabase Auth: failed to send admin OTP', error);
+    throw error;
+  }
+
+  return data;
+}
+
 export async function verifyParentOtp(
   email: string,
   token: string

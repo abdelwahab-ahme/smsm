@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import {
   sendParentOtp,
+  sendAdminOtp,
   verifyParentOtp,
   getParentByEmail,
   createParentProfile,
@@ -412,7 +413,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   
       // المرحلة الأولى: إرسال OTP
       if (!adminOtpSent) {
-        await sendParentOtp(cleanEmail);
+        await sendAdminOtp(cleanEmail);
   
         setAdminOtpSent(true);
         setAdminOtp('');
