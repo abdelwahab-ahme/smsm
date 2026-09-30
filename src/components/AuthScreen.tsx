@@ -1,28 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, Gender, Religion, ParentProfile } from '../types';
 import { useSound } from '../context/SoundContext';
-import { verifyAdminEmail, verifyAdminPin } from '../utils/storage';
 import { supabase } from '../lib/supabase';
 import confetti from 'canvas-confetti';
-import { 
-  Sparkles, 
-  Rocket, 
-  UserPlus, 
-  LogIn, 
-  Shield, 
-  Sun, 
-  Moon, 
-  Volume2, 
-  VolumeX, 
-  ArrowRight, 
-  Mail, 
-  Smartphone, 
-  KeyRound, 
-  Plus, 
-  Trash2, 
+import {
+  Rocket,
+  UserPlus,
+  LogIn,
+  Shield,
+  Sun,
+  Moon,
+  Volume2,
+  VolumeX,
+  ArrowRight,
+  Mail,
+  KeyRound,
+  Plus,
+  Trash2,
   Lock,
   RefreshCw,
-  Globe
+  Globe,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   sendParentOtp,
@@ -238,9 +236,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     if (!matched) {
       try {
         const { data } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .or(`pack_code.ilike.${clean},name.ilike.${clean}`);
+        .from('user_profiles')
+        .select('*')
+        .eq('pack_code', clean.toUpperCase());
 
         if (data && data.length > 0) {
           const p = data[0];
@@ -445,9 +443,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       const isAdmin = await isCurrentUserAdmin();
   
       if (!isAdmin) {
-        setAdminError(
-          'هذا الحساب تم التحقق منه، لكنه لا يمتلك صلاحيات مدير النظام.'
-        );
+        await supabase.auth.signOut();
+        setAdminError('هذا الحساب لا يمتلك صلاحيات مدير النظام.');
         playTryAgain();
         return;
       }
