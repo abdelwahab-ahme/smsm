@@ -925,18 +925,52 @@ export function getSmartBankQuestion(
 export function getQuestionBankStats(profile?: UserProfile | null) {
   let questions = QUESTION_BANK || [];
 
+  // إخفاء الأسئلة الإسلامية لغير المسلم
   if (profile && profile.religion !== 'muslim') {
-    questions = questions.filter((q) => !q.isIslamic && q.category !== 'islamic');
+    questions = questions.filter(
+      (q) => !q.isIslamic && q.category !== 'islamic'
+    );
   }
 
   const solvedIds = profile?.solvedBankQuestionIds || [];
+
+  const getCategoryStats = (category: string) => {
+    const categoryQuestions = questions.filter(
+      (q) => q.category === category
+    );
+
+    const solvedCount = categoryQuestions.filter((q) =>
+      solvedIds.includes(q.id)
+    ).length;
+
+    return {
+      total: categoryQuestions.length,
+      solved: solvedCount,
+      remaining: Math.max(0, categoryQuestions.length - solvedCount),
+    };
+  };
+
   const totalQuestions = questions.length;
-  const solvedCount = questions.filter((q) => solvedIds.includes(q.id)).length;
+
+  const solvedCount = questions.filter((q) =>
+    solvedIds.includes(q.id)
+  ).length;
 
   return {
     totalQuestions,
     solvedCount,
     remainingCount: Math.max(0, totalQuestions - solvedCount),
-    progressPercentage: totalQuestions > 0 ? Math.round((solvedCount / totalQuestions) * 100) : 0,
+    progressPercentage:
+      totalQuestions > 0
+        ? Math.round((solvedCount / totalQuestions) * 100)
+        : 0,
+
+    // إحصائيات المجالات
+    science: getCategoryStats('science'),
+    space: getCategoryStats('space'),
+    math: getCategoryStats('math'),
+    logic: getCategoryStats('logic'),
+    islamic: getCategoryStats('islamic'),
   };
+
 }
