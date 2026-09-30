@@ -1193,13 +1193,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           type="text"
           value={adminOtp}
           onChange={(e) => {
-            setAdminOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+            setAdminOtp(e.target.value.replace(/\D/g, '').slice(0, 8));
             setAdminError('');
           }}
-          placeholder="123456"
+          placeholder="12345678"
           dir="ltr"
           inputMode="numeric"
-          maxLength={6}
+          maxLength={8}
           autoFocus
           className="w-full pl-10 pr-3.5 py-3 rounded-xl border-2 border-red-300 dark:border-red-800 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center tracking-[0.5em] text-lg"
           required
