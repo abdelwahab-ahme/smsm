@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, ParentProfile, UserRole } from './types';
 import { supabase } from './lib/supabase';
-import { 
-  getChildrenByParentId, 
-  createChildProfileInDb, 
-  updateChildProfileInDb, 
-  testSupabaseConnection 
+import {
+  getChildrenByParentId,
+  createChildProfileInDb,
+  updateChildProfileInDb,
+  deleteChildProfileFromDb,
+  getUserProfileById,
+  getParentByEmail,
+  isCurrentUserAdmin,
+  signOutSupabase,
+  testSupabaseConnection,
 } from './lib/samasmDatabase';
+import { logAction } from './lib/audit';
+
+const ACTIVE_CHILD_KEY = 'samasm_active_child_id';
 import { SoundProvider, useSound } from './context/SoundContext';
 import { Navbar } from './components/Navbar';
 import { AuthScreen } from './components/AuthScreen';
@@ -43,6 +51,7 @@ function AppContent() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
   const { playClick, isMuted, toggleSound } = useSound();
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
 
   // ----------------------------------------------------
   // 🌐 Supabase Integration & Direct Database Sync
@@ -108,7 +117,60 @@ function AppContent() {
 
     loadAllOnlineData();
   }, []);
+  // ♻️ استرجاع الجلسة بعد تحديث الصفحة
+  useEffect(() => {
+    let mounted = true;
 
+    async function restoreSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          if (await isCurrentUserAdmin()) {
+            if (!mounted) return;
+            setIsAdminAuthenticated(true);
+            setActiveRoleState('admin');
+            setIsLoggedIn(true);
+            return;
+          }
+
+          const email = session.user.email?.toLowerCase();
+          const parent = email ? await getParentByEmail(email) : null;
+          if (parent) {
+            if (!mounted) return;
+            setParents((prev) => (prev.some((p) => p.id === parent.id) ? prev : [...prev, parent]));
+            setActiveParentIdState(parent.id);
+            setActiveRoleState('parent');
+            setIsLoggedIn(true);
+            return;
+          }
+        }
+
+        const savedChildId = localStorage.getItem(ACTIVE_CHILD_KEY);
+        if (savedChildId) {
+          const child = await getUserProfileById(savedChildId);
+          if (!mounted) return;
+          if (child) {
+            setProfiles((prev) => (prev.some((p) => p.id === child.id) ? prev : [...prev, child]));
+            setActiveProfileIdState(child.id);
+            setActiveRoleState('child');
+            setIsLoggedIn(true);
+          } else {
+            localStorage.removeItem(ACTIVE_CHILD_KEY);
+          }
+        }
+      } catch (err) {
+        console.error('Session restore failed:', err);
+      } finally {
+        if (mounted) setAuthLoading(false);
+      }
+    }
+
+    restoreSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
   // Dark Mode Sync with DOM
   useEffect(() => {
     if (isDarkMode) {
@@ -128,17 +190,26 @@ function AppContent() {
   // ----------------------------------------------------
   // Child Profile Handlers
   // ----------------------------------------------------
-  const handleSelectProfile = (id: string) => {
+  const handleSelectProfile = async (id: string) => {
+    // لو بيانات الطفل مش في الـ state (اتسجل من جهاز تاني مثلاً) هاتها من الداتابيز
+    if (!profiles.some((p) => p.id === id)) {
+      const fetched = await getUserProfileById(id);
+      if (fetched) {
+        setProfiles((prev) => (prev.some((p) => p.id === fetched.id) ? prev : [...prev, fetched]));
+      }
+    }
+    localStorage.setItem(ACTIVE_CHILD_KEY, id);
     setActiveProfileIdState(id);
     setActiveRoleState('child');
     setIsLoggedIn(true);
     setCurrentTab('challenge');
+    logAction('child_login', { entity: 'user_profiles', entityId: id });
   };
 
   const handleCreateProfile = async (data: Omit<UserProfile, 'id' | 'points' | 'unlockedBadgeIds' | 'lastSolvedDate' | 'solvedChallengesCount' | 'createdAt'>) => {
     const newProfile: UserProfile = {
       ...data,
-      id: 'hero-' + Date.now(),
+      id: crypto.randomUUID(),
       points: 20,
       unlockedBadgeIds: ['curiosity_spark'],
       lastSolvedDate: null,
@@ -147,10 +218,14 @@ function AppContent() {
       createdAt: new Date().toISOString(),
     };
 
-    // حفظ الطفل في Supabase أونلاين
-    await createChildProfileInDb(newProfile, activeParentId || undefined);
+    const saved = await createChildProfileInDb(newProfile, activeParentId || undefined);
+    if (!saved) {
+      alert('تعذر حفظ الحساب في قاعدة البيانات. ربما كود الكيس مستخدم من قبل، أو حدثت مشكلة اتصال.');
+      return;
+    }
 
     setProfiles((prev) => [...prev, newProfile]);
+    localStorage.setItem(ACTIVE_CHILD_KEY, newProfile.id);
     setActiveProfileIdState(newProfile.id);
     setActiveRoleState('child');
     setIsProfileModalOpen(false);
@@ -159,28 +234,52 @@ function AppContent() {
   };
 
   const handleDeleteProfile = async (id: string) => {
-    try {
-      await supabase.from('user_profiles').delete().eq('id', id);
-      const updated = profiles.filter((p) => p.id !== id);
-      setProfiles(updated);
-      if (activeProfileId === id) {
-        const nextActive = updated.length > 0 ? updated[0].id : null;
-        setActiveProfileIdState(nextActive);
-        if (!nextActive) handleLogout();
-      }
-    } catch (err) {
-      console.error('Error deleting profile:', err);
+    const ok = await deleteChildProfileFromDb(id);
+    if (!ok) {
+      alert('فشل الحذف من قاعدة البيانات.');
+      return;
+    }
+
+    const updated = profiles.filter((p) => p.id !== id);
+    setProfiles(updated);
+    if (activeProfileId === id) {
+      const nextActive = updated.length > 0 ? updated[0].id : null;
+      setActiveProfileIdState(nextActive);
+      if (!nextActive) handleLogout();
+    }
+  };
+  const handleUpdateActiveProfile = async (updated: UserProfile) => {
+    setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    const saved = await updateChildProfileInDb(updated.id, updated);
+    if (!saved) {
+      console.error('⚠️ تقدم الطفل لم يُحفظ في الداتابيز:', updated.id);
     }
   };
 
-  const handleUpdateActiveProfile = async (updated: UserProfile) => {
-    setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    // تحديث تقدم الطفل في Supabase مباشرة
-    await updateChildProfileInDb(updated.id, updated);
-  };
-
-  const handleUpdateAllProfiles = (updatedList: UserProfile[]) => {
+  const handleUpdateAllProfiles = async (updatedList: UserProfile[]) => {
+    const previous = profiles;
     setProfiles(updatedList);
+
+    try {
+      for (const p of updatedList) {
+        const old = previous.find((o) => o.id === p.id);
+
+        if (!old) {
+          // طالب جديد
+          const created = await createChildProfileInDb(p);
+          if (!created) throw new Error('create failed: ' + p.name);
+        } else if (JSON.stringify(old) !== JSON.stringify(p)) {
+          // تعديل (نقاط، أوسمة، بيانات، فك قفل...)
+          const saved = await updateChildProfileInDb(p.id, p);
+          if (!saved) throw new Error('update failed: ' + p.name);
+        }
+      }
+      // الحذف بيتم في handleConfirmDeleteStudent نفسها
+    } catch (err) {
+      console.error('❌ Failed to sync profiles to database:', err);
+      setProfiles(previous);
+      alert('تعذر حفظ التغيير في قاعدة البيانات، وتم التراجع عنه. راجع الـ Console.');
+    }
   };
 
   // ----------------------------------------------------
@@ -195,6 +294,7 @@ function AppContent() {
     });
 
     setActiveParentIdState(parent.id);
+    logAction('parent_login', { entity: 'parents', entityId: parent.id });
     setActiveRoleState('parent');
     setIsLoggedIn(true);
   };
@@ -216,7 +316,7 @@ function AppContent() {
 
       if (!exists) {
         const newChildProfile: UserProfile = {
-          id: 'hero-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+          id: crypto.randomUUID(),
           name: child.name.trim() || 'بطل سماسم',
           packCode: cleanCode,
           gender: 'boy',
@@ -296,16 +396,30 @@ function AppContent() {
     setIsAdminAuthenticated(true);
     setActiveRoleState('admin');
     setIsLoggedIn(true);
+    logAction('admin_login');
   };
 
   // ----------------------------------------------------
   // General Logout / Role Switcher
   // ----------------------------------------------------
-  const handleLogout = () => {
+  const handleLogout = async () => {
     playClick();
+    const role = activeRole;
+
+    localStorage.removeItem(ACTIVE_CHILD_KEY);
     setIsLoggedIn(false);
     setActiveRoleState(null);
     setIsAdminAuthenticated(false);
+    setActiveParentIdState(null);
+
+    if (role === 'admin' || role === 'parent') {
+      await logAction(`${role}_logout`); // قبل signOut عشان يتسجل باسم صاحب الجلسة
+    }
+    try {
+      await signOutSupabase();
+    } catch (err) {
+      console.error('Sign out failed:', err);
+    }
   };
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0] || null;
@@ -321,6 +435,13 @@ function AppContent() {
   // 1. GATEKEEPER / AUTH SCREEN (ROLE SELECTION)
   // ========================================================
   if (!isLoggedIn || !activeRole) {
+    if (authLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-amber-50 dark:bg-slate-950 text-slate-700 dark:text-slate-200 font-black">
+          جاري التحميل... 🍭
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen">
         <AuthScreen

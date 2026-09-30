@@ -301,7 +301,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
 
     const newProfile: UserProfile = {
-      id: 'hero-' + Date.now(),
+      id: crypto.randomUUID(),
       name: newStudentName.trim(),
       packCode: newStudentCode.trim().toUpperCase(),
       email: newStudentEmail.trim().toLowerCase() || undefined,

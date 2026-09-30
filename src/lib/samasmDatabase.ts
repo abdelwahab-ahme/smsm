@@ -98,23 +98,28 @@ export async function createChildProfileInDb(
   parentId?: string
 ): Promise<UserProfile | null> {
   try {
-    // 💡 التعديل الجوهري: استخدام crypto.randomUUID() يمنع خطأ 409 نهائياً
-    const generatedId = (profileData.id && profileData.id.includes('-') && !profileData.id.startsWith('hero-'))
-      ? profileData.id
-      : crypto.randomUUID();
+    const isUuid = (v?: string) =>
+      !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
     const newChild = {
-      id: generatedId,
+      id: isUuid(profileData.id) ? profileData.id! : crypto.randomUUID(),
       name: profileData.name,
       pack_code: profileData.packCode,
       gender: profileData.gender,
       avatar: profileData.avatar,
-      points: profileData.points || 20,
+      religion: (profileData as any).religion ?? 'muslim',
+      points: profileData.points ?? 20,
+      unlocked_badge_ids: profileData.unlockedBadgeIds ?? ['curiosity_spark'],
+      solved_categories: profileData.solvedCategories ?? [],
+      solved_challenges_count: profileData.solvedChallengesCount ?? 0,
+      last_solved_date: profileData.lastSolvedDate ?? null,
+      retry_count: profileData.retryCount ?? 0,
+      math_speed_high_score: profileData.mathSpeedHighScore ?? 0,
+      wheel_spins_count: profileData.wheelSpinsCount ?? 0,
+      lab_points_earned: profileData.labPointsEarned ?? 0,
       parent_id: parentId || null,
-      created_at: new Date().toISOString()
+      created_at: profileData.createdAt ?? new Date().toISOString(),
     };
-
-    console.log('--- DB Insert Payload ---', newChild);
 
     const { data, error } = await supabase
       .from('user_profiles')
@@ -125,8 +130,6 @@ export async function createChildProfileInDb(
       console.error('❌ Supabase Insert Error:', error);
       return null;
     }
-
-    console.log('✅ Supabase Insert Success:', data);
     return data ? (data[0] as unknown as UserProfile) : null;
   } catch (err) {
     console.error('❌ Unexpected error in createChildProfileInDb:', err);
@@ -202,11 +205,16 @@ export async function updateChildProfileInDb(
     if (updates.packCode !== undefined) dbPayload.pack_code = updates.packCode;
     if (updates.gender !== undefined) dbPayload.gender = updates.gender;
     if (updates.avatar !== undefined) dbPayload.avatar = updates.avatar;
+    if ((updates as any).religion !== undefined) dbPayload.religion = (updates as any).religion;
     if (updates.points !== undefined) dbPayload.points = updates.points;
     if (updates.unlockedBadgeIds !== undefined) dbPayload.unlocked_badge_ids = updates.unlockedBadgeIds;
     if (updates.lastSolvedDate !== undefined) dbPayload.last_solved_date = updates.lastSolvedDate;
     if (updates.solvedChallengesCount !== undefined) dbPayload.solved_challenges_count = updates.solvedChallengesCount;
     if (updates.solvedCategories !== undefined) dbPayload.solved_categories = updates.solvedCategories;
+    if (updates.retryCount !== undefined) dbPayload.retry_count = updates.retryCount;
+    if (updates.mathSpeedHighScore !== undefined) dbPayload.math_speed_high_score = updates.mathSpeedHighScore;
+    if (updates.wheelSpinsCount !== undefined) dbPayload.wheel_spins_count = updates.wheelSpinsCount;
+    if (updates.labPointsEarned !== undefined) dbPayload.lab_points_earned = updates.labPointsEarned;
 
     const { data, error } = await supabase
       .from('user_profiles')
@@ -219,14 +227,18 @@ export async function updateChildProfileInDb(
       return null;
     }
 
-    console.log('✅ Supabase Profile Update Success:', data);
-    return data ? (data[0] as unknown as UserProfile) : null;
+    // صفر صفوف = الـ RLS منع التعديل أو الـ id غلط
+    if (!data || data.length === 0) {
+      console.error('❌ Nothing updated (RLS blocked or id not found):', profileId);
+      return null;
+    }
+
+    return data[0] as unknown as UserProfile;
   } catch (err) {
     console.error('❌ Unexpected error in updateChildProfileInDb:', err);
     return null;
   }
 }
-
 // =========================
 // PARENTS & AUTH
 // =========================
@@ -254,7 +266,7 @@ export async function getParentByEmail(
     name: data.name,
     email: data.email,
     phone: data.phone ?? undefined,
-    linkedPackCodes: [],
+    linkedPackCodes: data.linked_pack_codes ?? [],
     createdAt: data.created_at,
   };
 }
@@ -468,6 +480,42 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
 
   return Boolean(data);
 }
+
+export async function getUserProfileById(id: string): Promise<UserProfile | null> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Supabase: failed to get profile by id', error);
+    return null;
+  }
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    name: data.name,
+    packCode: data.pack_code || '',
+    gender: data.gender || 'boy',
+    avatar: data.avatar || '👦',
+    religion: data.religion || 'muslim',
+    points: data.points ?? 20,
+    unlockedBadgeIds: data.unlocked_badge_ids || ['curiosity_spark'],
+    lastSolvedDate: data.last_solved_date,
+    solvedChallengesCount: data.solved_challenges_count ?? 0,
+    solvedCategories: data.solved_categories || [],
+    retryCount: data.retry_count ?? 0,
+    mathSpeedHighScore: data.math_speed_high_score ?? 0,
+    wheelSpinsCount: data.wheel_spins_count ?? 0,
+    labPointsEarned: data.lab_points_earned ?? 0,
+    createdAt: data.created_at,
+  } as UserProfile;
+}
+
+
+
 export async function deleteChildProfileFromDb(profileId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from('user_profiles')
