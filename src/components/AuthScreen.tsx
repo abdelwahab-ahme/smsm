@@ -986,7 +986,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         type="text"
                         value={parentOtp}
                         onChange={(e) => setParentOtp(e.target.value)}
-                        placeholder="123456"
+                        placeholder="12345678"
                         className="w-full px-3.5 py-2.5 rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center text-sm"
                         required
                       />

@@ -468,3 +468,23 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
 
   return Boolean(data);
 }
+export async function deleteChildProfileFromDb(profileId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .delete()
+    .eq('id', profileId)
+    .select('id');
+
+  if (error) {
+    console.error('❌ Delete failed:', error.message);
+    return false;
+  }
+
+  // لو رجع صفر صفوف يبقى الـ RLS منع الحذف من غير خطأ
+  if (!data || data.length === 0) {
+    console.error('❌ Nothing deleted (RLS blocked or id not found)');
+    return false;
+  }
+
+  return true;
+}
