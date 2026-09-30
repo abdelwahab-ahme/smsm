@@ -161,7 +161,7 @@ export const QuestionBankExplorer: React.FC<QuestionBankExplorerProps> = ({
       </div>
 
       {/* Category Tabs & Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+      <div className={`grid grid-cols-2 gap-2 ${activeProfile.religion === 'muslim' ? 'sm:grid-cols-6' : 'sm:grid-cols-5'}`}>
         <button
           onClick={() => setActiveCategory('all')}
           className={`p-3 rounded-2xl font-black text-xs sm:text-sm border transition-all cursor-pointer flex flex-col items-center gap-1 ${
@@ -226,6 +226,20 @@ export const QuestionBankExplorer: React.FC<QuestionBankExplorerProps> = ({
           <span>منطق وذكاء</span>
           <span className="text-[10px] opacity-80">{stats.logic.solved}/{stats.logic.total}</span>
         </button>
+        {activeProfile.religion === 'muslim' && (
+          <button
+            onClick={() => setActiveCategory('islamic')}
+            className={`p-3 rounded-2xl font-black text-xs sm:text-sm border transition-all cursor-pointer flex flex-col items-center gap-1 ${
+              activeCategory === 'islamic'
+                ? 'bg-teal-600 text-white border-teal-700 shadow-md scale-102'
+                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-teal-50'
+            }`}
+          >
+            <span className="text-lg">🌙</span>
+            <span>الإسلاميات</span>
+            <span className="text-[10px] opacity-80">{stats.islamic.solved}/{stats.islamic.total}</span>
+          </button>
+        )}
       </div>
 
       {/* Exhausted Category Banner if all solved */}

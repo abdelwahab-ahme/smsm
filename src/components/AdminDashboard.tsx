@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { fetchQuestionBank, upsertQuestion, deleteQuestionById, seedQuestionBank } from '../lib/questionBankDb';
 import { UserProfile, Gender, ParentProfile, BankQuestion, DailyChallenge, LabExperiment, QuestionCategory, LabCategory, AgeGroup, DifficultyLevel } from '../types';
 import { 
   INITIAL_BADGES, 
@@ -20,7 +21,7 @@ import {
   getStoredLabExperiments,
   saveStoredLabExperiments
 } from '../utils/storage';
-import { QUESTION_BANK } from '../data/questionBank';
+import { QUESTION_BANK, setActiveQuestionBank } from '../data/questionBank';
 import { LAB_EXPERIMENTS } from '../data/labExperiments';
 import { DAILY_CHALLENGES } from '../utils/storage';
 import { useSound } from '../context/SoundContext';
@@ -114,7 +115,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newParentChildCode, setNewParentChildCode] = useState('');
 
   // Questions Management State
-  const [questions, setQuestions] = useState<BankQuestion[]>(() => getStoredQuestionBank());
+  const [questions, setQuestions] = useState<BankQuestion[]>(QUESTION_BANK);
+  const [dbQuestionCount, setDbQuestionCount] = useState<number | null>(null);
   const [questionCategoryFilter, setQuestionCategoryFilter] = useState<QuestionCategory | 'all'>('all');
   const [isAddingQuestion, setIsAddingQuestion] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<BankQuestion | null>(null);
@@ -167,7 +169,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const todayStr = getTodayDateString();
   const simulatedOffset = getSimulatedDateOffset();
   const { playClick, playPop, playPointsEarned, playSuccessWhistle, playTryAgain } = useSound();
-
+  // 📚 تحميل بنك الأسئلة من الداتابيز
+  useEffect(() => {
+    let cancelled = false;
+    fetchQuestionBank().then((rows) => {
+      if (cancelled || rows === null) return;
+      setDbQuestionCount(rows.length);
+      if (rows.length > 0) {
+        setQuestions(rows);
+        setActiveQuestionBank(rows);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Metrics
   const totalChildren = profiles.length;
   const totalParents = parents.length;
@@ -409,81 +425,134 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsAddingQuestion(true);
   };
 
-  const handleSaveQuestionSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!qText.trim() || !qOptA.trim() || !qOptB.trim()) {
-      showToast('يرجى ملء نص السؤال وخياري إجابة على الأقل', 'error');
-      playTryAgain();
-      return;
-    }
-
-    const categoryIcons: Record<QuestionCategory, string> = {
-      science: '🔬',
-      space: '🚀',
-      math: '🔢',
-      logic: '🧩',
+    // لو الجدول فاضي نرفع الأسئلة الافتراضية الأول، عشان الأطفال ما يشوفوش سؤال واحد بس
+    const ensureQuestionsSeeded = async (): Promise<boolean> => {
+      if (dbQuestionCount === null) {
+        showToast('بنك الأسئلة لسه بيتحمل من الداتابيز (أو فشل التحميل)، جرّب تحدّث الصفحة.', 'error');
+        return false;
+      }
+      if (dbQuestionCount > 0) return true;
+  
+      const ok = await seedQuestionBank(QUESTION_BANK);
+      if (!ok) {
+        showToast('تعذر رفع الأسئلة الافتراضية للداتابيز (راجع Console).', 'error');
+        return false;
+      }
+      setDbQuestionCount(QUESTION_BANK.length);
+      return true;
     };
-
-    const categoryLabels: Record<QuestionCategory, string> = {
-      science: 'العلوم',
-      space: 'الفضاء',
-      math: 'الرياضيات',
-      logic: 'منطق وذكاء',
+  
+    const handleSaveQuestionSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!qText.trim() || !qOptA.trim() || !qOptB.trim()) {
+        showToast('يرجى ملء نص السؤال وخياري إجابة على الأقل', 'error');
+        playTryAgain();
+        return;
+      }
+  
+      const categoryIcons: Record<QuestionCategory, string> = {
+        science: '🔬',
+        space: '🚀',
+        math: '🔢',
+        logic: '🧩',
+        islamic: '🌙',
+      };
+  
+      const categoryLabels: Record<QuestionCategory, string> = {
+        science: 'العلوم',
+        space: 'الفضاء',
+        math: 'الرياضيات',
+        logic: 'منطق وذكاء',
+        islamic: 'ركن الإسلاميات',
+      };
+  
+      const questionObj: BankQuestion = {
+        id: editingQuestion ? editingQuestion.id : 'custom-q-' + Date.now(),
+        category: qCategory,
+        categoryLabel: categoryLabels[qCategory],
+        categoryIcon: categoryIcons[qCategory],
+        categoryColor:
+          qCategory === 'islamic'
+            ? 'bg-emerald-100 text-emerald-950 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-100'
+            : 'bg-indigo-100 text-indigo-950 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-100',
+        isIslamic: qCategory === 'islamic',
+        title: qTitle.trim() || `سؤال ${categoryLabels[qCategory]} جديد`,
+        question: qText.trim(),
+        options: [
+          { id: 'a', text: qOptA.trim() },
+          { id: 'b', text: qOptB.trim() },
+          { id: 'c', text: qOptC.trim() || 'إجابة ج' },
+          { id: 'd', text: qOptD.trim() || 'إجابة د' },
+        ],
+        correctOptionId: qCorrect,
+        explanation: qExplanation.trim() || 'تفسير علمي رائع يثري معلومات الطفل!',
+        funFact: qFunFact.trim() || 'اكتشاف علمي ممتع!',
+        hint: qHint.trim() || 'فكر بذكاء واستنتج الإجابة!',
+        points: Number(qPoints) || 20,
+      };
+  
+      if (!(await ensureQuestionsSeeded())) return;
+  
+      const saved = await upsertQuestion(questionObj);
+      if (!saved) {
+        playTryAgain();
+        showToast('فشل حفظ السؤال في قاعدة البيانات (راجع Console).', 'error');
+        return;
+      }
+  
+      let updatedQuestions: BankQuestion[];
+      if (editingQuestion) {
+        updatedQuestions = questions.map((q) => (q.id === editingQuestion.id ? questionObj : q));
+        showToast('تم حفظ تعديلات السؤال في بنك الأسئلة!', 'success');
+      } else {
+        updatedQuestions = [questionObj, ...questions];
+        showToast('تمت إضافة السؤال الجديد وحفظه في قاعدة البيانات!', 'success');
+      }
+  
+      setQuestions(updatedQuestions);
+      setActiveQuestionBank(updatedQuestions);
+      setDbQuestionCount(updatedQuestions.length);
+      setIsAddingQuestion(false);
+      setEditingQuestion(null);
+      playSuccessWhistle();
     };
-
-    const questionObj: BankQuestion = {
-      id: editingQuestion ? editingQuestion.id : 'custom-q-' + Date.now(),
-      category: qCategory,
-      categoryLabel: categoryLabels[qCategory],
-      categoryIcon: categoryIcons[qCategory],
-      categoryColor: 'bg-indigo-100 text-indigo-950 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-100',
-      title: qTitle.trim() || `سؤال ${categoryLabels[qCategory]} جديد`,
-      question: qText.trim(),
-      options: [
-        { id: 'a', text: qOptA.trim() },
-        { id: 'b', text: qOptB.trim() },
-        { id: 'c', text: qOptC.trim() || 'إجابة ج' },
-        { id: 'd', text: qOptD.trim() || 'إجابة د' },
-      ],
-      correctOptionId: qCorrect,
-      explanation: qExplanation.trim() || 'تفسير علمي رائع يثري معلومات الطفل!',
-      funFact: qFunFact.trim() || 'اكتشاف علمي ممتع!',
-      hint: qHint.trim() || 'فكر بذكاء واستنتج الإجابة!',
-      points: Number(qPoints) || 20,
+  
+    const handleDeleteQuestion = async (id: string) => {
+      if (!(await ensureQuestionsSeeded())) return;
+  
+      const ok = await deleteQuestionById(id);
+      if (!ok) {
+        playTryAgain();
+        showToast('فشل حذف السؤال من قاعدة البيانات (راجع Console).', 'error');
+        return;
+      }
+  
+      const updated = questions.filter((q) => q.id !== id);
+      setQuestions(updated);
+      setActiveQuestionBank(updated);
+      setDbQuestionCount(updated.length);
+      setDeleteConfirmQuestionId(null);
+      playPop();
+      showToast('تم حذف السؤال من بنك الأسئلة بنجاح!', 'success');
     };
-
-    let updatedQuestions: BankQuestion[];
-    if (editingQuestion) {
-      updatedQuestions = questions.map((q) => (q.id === editingQuestion.id ? questionObj : q));
-      showToast('تم حفظ تعديلات السؤال في بنك الأسئلة!', 'success');
-    } else {
-      updatedQuestions = [questionObj, ...questions];
-      showToast('تمت إضافة السؤال الجديد إلى بنك أسئلة وتحديات المنصة!', 'success');
-    }
-
-    setQuestions(updatedQuestions);
-    saveStoredQuestionBank(updatedQuestions);
-    setIsAddingQuestion(false);
-    setEditingQuestion(null);
-    playSuccessWhistle();
-  };
-
-  const handleDeleteQuestion = (id: string) => {
-    const updated = questions.filter((q) => q.id !== id);
-    setQuestions(updated);
-    saveStoredQuestionBank(updated);
-    setDeleteConfirmQuestionId(null);
-    playPop();
-    showToast('تم حذف السؤال من بنك الأسئلة بنجاح!', 'success');
-  };
-
-  const handleResetQuestionsToDefault = () => {
-    setQuestions(QUESTION_BANK);
-    saveStoredQuestionBank(QUESTION_BANK);
-    playSuccessWhistle();
-    showToast('تمت استعادة الأسئلة الافتراضية بنجاح!', 'success');
-  };
-
+  
+    // رفع/استعادة الأسئلة الافتراضية (بيرفع اللي في الكود ويحدّث الموجود بنفس الـ id)
+    const handleResetQuestionsToDefault = async () => {
+      const ok = await seedQuestionBank(QUESTION_BANK);
+      if (!ok) {
+        playTryAgain();
+        showToast('تعذر رفع الأسئلة للداتابيز (راجع Console).', 'error');
+        return;
+      }
+      const rows = await fetchQuestionBank();
+      if (rows) {
+        setQuestions(rows);
+        setActiveQuestionBank(rows);
+        setDbQuestionCount(rows.length);
+      }
+      playSuccessWhistle();
+      showToast('تم رفع الأسئلة الافتراضية إلى قاعدة البيانات!', 'success');
+    };
   // ----------------------------------------------------------------
   // 4. EXPERIMENTS MANAGEMENT
   // ----------------------------------------------------------------
@@ -1137,10 +1206,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             </div>
           </div>
-
+          {dbQuestionCount === 0 && (
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <p className="text-xs sm:text-sm font-black text-amber-950 dark:text-amber-200">
+                ⚠️ الأسئلة الحالية ({QUESTION_BANK.length} سؤال) لسه مكتوبة في الكود بس، ومش محفوظة في الداتابيز.
+              </p>
+              <button
+                onClick={handleResetQuestionsToDefault}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shrink-0 cursor-pointer"
+              >
+                رفع الأسئلة للداتابيز الآن
+              </button>
+            </div>
+          )}
           {/* Category Filter */}
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {(['all', 'science', 'space', 'math', 'logic'] as const).map((cat) => (
+          {(['all', 'science', 'space', 'math', 'logic', 'islamic'] as const).map((cat) => (
               <button
                 key={cat}
                 onClick={() => setQuestionCategoryFilter(cat)}
@@ -1150,7 +1231,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
                 }`}
               >
-                {cat === 'all' ? 'جميع الأقسام' : cat === 'science' ? 'العلوم 🔬' : cat === 'space' ? 'الفضاء 🚀' : cat === 'math' ? 'الرياضيات 🔢' : 'منطق وذكاء 🧩'}
+              {cat === 'all' ? 'جميع الأقسام' : cat === 'science' ? 'العلوم 🔬' : cat === 'space' ? 'الفضاء 🚀' : cat === 'math' ? 'الرياضيات 🔢' : cat === 'logic' ? 'منطق وذكاء 🧩' : 'الإسلاميات 🌙'}
               </button>
             ))}
           </div>
@@ -1557,6 +1638,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <option value="space">الفضاء والفلك (Space) 🚀</option>
                   <option value="math">الرياضيات والحساب (Math) 🔢</option>
                   <option value="logic">منطق وذكاء (Logic) 🧩</option>
+                  <option value="islamic">الإسلاميات (Islamic) 🌙</option>
                 </select>
               </div>
 

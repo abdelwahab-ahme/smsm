@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, ParentProfile, UserRole } from './types';
 import { supabase } from './lib/supabase';
+import { fetchQuestionBank } from './lib/questionBankDb';
+import { setActiveQuestionBank } from './data/questionBank';
 import {
   getChildrenByParentId,
   createChildProfileInDb,
@@ -54,7 +56,7 @@ function AppContent() {
 
   const { playClick, isMuted, toggleSound } = useSound();
   const [authLoading, setAuthLoading] = useState<boolean>(true);
-
+  const [bankVersion, setBankVersion] = useState<number>(0);
   // ----------------------------------------------------
   // 🌐 Supabase Integration & Direct Database Sync
   // ----------------------------------------------------
@@ -63,7 +65,15 @@ function AppContent() {
       if (!result.success) console.error('❌ خطأ في الاتصال بـ Supabase:', result.error);
     });
   }, []);
-
+  // 📚 تحميل بنك الأسئلة من الداتابيز (متاح للكل)
+  useEffect(() => {
+    fetchQuestionBank().then((rows) => {
+      if (rows && rows.length > 0) {
+        setActiveQuestionBank(rows);
+        setBankVersion((v) => v + 1);
+      }
+    });
+  }, []);
   // 📥 تحميل كل البيانات للأدمن فقط بعد تأكيد صلاحياته
   useEffect(() => {
     if (activeRole !== 'admin' || !isAdminAuthenticated) return;
@@ -584,6 +594,7 @@ function AppContent() {
 
         {activeProfile && currentTab === 'games' && (
           <GamifiedLearningZone
+            key={bankVersion}
             activeProfile={activeProfile}
             onUpdateProfile={handleUpdateActiveProfile}
             onOpenBadgesTab={() => setCurrentTab('badges')}

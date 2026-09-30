@@ -37,7 +37,13 @@ const SECTORS: Sector[] = [
   { id: 'logic', label: 'منطق وذكاء', icon: '🧩', color: '#a855f7', accent: '#9333ea' },
   { id: 'bonus', label: 'صندوق المفاجأة 2x', icon: '🌟', color: '#ec4899', accent: '#db2777' },
 ];
-
+const ISLAMIC_SECTOR: Sector = {
+  id: 'islamic',
+  label: 'إسلاميات',
+  icon: '🌙',
+  color: '#0d9488',
+  accent: '#0f766e',
+};
 export const KnowledgeWheel: React.FC<KnowledgeWheelProps> = ({
   activeProfile,
   onUpdateProfile,
@@ -56,7 +62,19 @@ export const KnowledgeWheel: React.FC<KnowledgeWheelProps> = ({
   const [answerFeedback, setAnswerFeedback] = useState<{ isCorrect: boolean; message: string } | null>(null);
   const [unlockedBadge, setUnlockedBadge] = useState<string | null>(null);
 
-  const numSectors = SECTORS.length;
+  // قطاع الإسلاميات يظهر للطفل المسلم فقط
+  const sectors: Sector[] =
+    activeProfile.religion === 'muslim'
+      ? [
+          ...SECTORS.filter((s) => s.id !== 'bonus'),
+          ISLAMIC_SECTOR,
+          ...SECTORS.filter((s) => s.id === 'bonus'),
+        ]
+      : SECTORS;
+  const bonusPool = sectors
+    .filter((s) => s.id !== 'bonus')
+    .map((s) => s.id as QuestionCategory);
+  const numSectors = sectors.length;
   const sectorAngle = 360 / numSectors;
 
   // Spin the wheel
@@ -74,7 +92,7 @@ export const KnowledgeWheel: React.FC<KnowledgeWheelProps> = ({
 
     // Random sector pick
     const targetSectorIndex = Math.floor(Math.random() * numSectors);
-    const chosenSector = SECTORS[targetSectorIndex];
+    const chosenSector = sectors[targetSectorIndex];
 
     // Calculate rotation with multiple full spins (5 to 8 rotations)
     const extraRotations = 360 * (5 + Math.floor(Math.random() * 3));
@@ -100,7 +118,7 @@ export const KnowledgeWheel: React.FC<KnowledgeWheelProps> = ({
       setIsBonusMultiplier(isBonus);
 
       const targetCategory: QuestionCategory = isBonus
-        ? (['science', 'space', 'math', 'logic'][Math.floor(Math.random() * 4)] as QuestionCategory)
+      ? bonusPool[Math.floor(Math.random() * bonusPool.length)]
         : (chosenSector.id as QuestionCategory);
 
         const question = getSmartBankQuestion(
@@ -237,7 +255,7 @@ export const KnowledgeWheel: React.FC<KnowledgeWheelProps> = ({
               transitionTimingFunction: 'cubic-bezier(0.15, 0.9, 0.25, 1)',
             }}
           >
-            {SECTORS.map((sector, index) => {
+            {sectors.map((sector, index) => {
               const startAngle = (index * sectorAngle * Math.PI) / 180;
               const endAngle = (((index + 1) * sectorAngle) * Math.PI) / 180;
               const x1 = 50 + 50 * Math.cos(startAngle);

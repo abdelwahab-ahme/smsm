@@ -883,66 +883,58 @@ export const QUESTION_BANK: BankQuestion[] = [
   
 
 
-// 1. دالة اختار سؤال ذكي بناءً على ملف الطفل والأسئلة المحلولة سابقاً
+// ===== بنك الأسئلة النشط: من قاعدة البيانات، وبديله الأسئلة المكتوبة في الكود =====
+let activeBank: BankQuestion[] = QUESTION_BANK;
+
+export function setActiveQuestionBank(list: BankQuestion[]) {
+  activeBank = list && list.length > 0 ? list : QUESTION_BANK;
+}
+
+export function getActiveQuestionBank(): BankQuestion[] {
+  return activeBank;
+}
+
+const isIslamicQuestion = (q: BankQuestion) => q.isIslamic === true || q.category === 'islamic';
+
+// 1. اختيار سؤال ذكي بناءً على ملف الطفل والأسئلة المحلولة سابقاً
 export function getSmartBankQuestion(
   profile?: UserProfile | null,
   selectedCategory?: string
 ): BankQuestion | null {
-  if (!QUESTION_BANK || QUESTION_BANK.length === 0) return null;
+  if (!activeBank || activeBank.length === 0) return null;
 
-  let availableQuestions = [...QUESTION_BANK];
+  let availableQuestions = [...activeBank];
 
-  // تصفية الأسئلة بناءً على تفعيل/إلغاء المحتوى الديني
+  // الطفل غير المسلم ما يشوفش الأسئلة الإسلامية
   if (profile && profile.religion !== 'muslim') {
-    availableQuestions = availableQuestions.filter(
-      (q) => !q.isIslamic && q.category !== 'islamic'
-    );
+    availableQuestions = availableQuestions.filter((q) => !isIslamicQuestion(q));
   }
 
-  // تصفية حسب القسم المختار (إن وجد)
   if (selectedCategory && selectedCategory !== 'all') {
-    availableQuestions = availableQuestions.filter(
-      (q) => q.category === selectedCategory
-    );
+    availableQuestions = availableQuestions.filter((q) => q.category === selectedCategory);
   }
 
-  // استبعاد الأسئلة التي حلها الطفل من قبل (إن أمكن)
   const solvedIds = profile?.solvedBankQuestionIds || [];
-  const unsolvedQuestions = availableQuestions.filter(
-    (q) => !solvedIds.includes(q.id)
-  );
-
-  // إذا حل جميع الأسئلة، نختار من كل الأسئلة المتاحة عشوائياً
+  const unsolvedQuestions = availableQuestions.filter((q) => !solvedIds.includes(q.id));
   const pool = unsolvedQuestions.length > 0 ? unsolvedQuestions : availableQuestions;
 
   if (pool.length === 0) return null;
-
-  const randomIndex = Math.floor(Math.random() * pool.length);
-  return pool[randomIndex];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
-// 2. دالة إحصائيات بنك الأسئلة
+// 2. إحصائيات بنك الأسئلة
 export function getQuestionBankStats(profile?: UserProfile | null) {
-  let questions = QUESTION_BANK || [];
+  let questions = activeBank || [];
 
-  // إخفاء الأسئلة الإسلامية لغير المسلم
   if (profile && profile.religion !== 'muslim') {
-    questions = questions.filter(
-      (q) => !q.isIslamic && q.category !== 'islamic'
-    );
+    questions = questions.filter((q) => !isIslamicQuestion(q));
   }
 
   const solvedIds = profile?.solvedBankQuestionIds || [];
 
   const getCategoryStats = (category: string) => {
-    const categoryQuestions = questions.filter(
-      (q) => q.category === category
-    );
-
-    const solvedCount = categoryQuestions.filter((q) =>
-      solvedIds.includes(q.id)
-    ).length;
-
+    const categoryQuestions = questions.filter((q) => q.category === category);
+    const solvedCount = categoryQuestions.filter((q) => solvedIds.includes(q.id)).length;
     return {
       total: categoryQuestions.length,
       solved: solvedCount,
@@ -951,26 +943,17 @@ export function getQuestionBankStats(profile?: UserProfile | null) {
   };
 
   const totalQuestions = questions.length;
-
-  const solvedCount = questions.filter((q) =>
-    solvedIds.includes(q.id)
-  ).length;
+  const solvedCount = questions.filter((q) => solvedIds.includes(q.id)).length;
 
   return {
     totalQuestions,
     solvedCount,
     remainingCount: Math.max(0, totalQuestions - solvedCount),
-    progressPercentage:
-      totalQuestions > 0
-        ? Math.round((solvedCount / totalQuestions) * 100)
-        : 0,
-
-    // إحصائيات المجالات
+    progressPercentage: totalQuestions > 0 ? Math.round((solvedCount / totalQuestions) * 100) : 0,
     science: getCategoryStats('science'),
     space: getCategoryStats('space'),
     math: getCategoryStats('math'),
     logic: getCategoryStats('logic'),
     islamic: getCategoryStats('islamic'),
   };
-
 }
