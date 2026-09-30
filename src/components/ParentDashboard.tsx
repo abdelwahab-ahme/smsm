@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { UserProfile, ParentProfile } from '../types';
 import { INITIAL_BADGES, getTodayDateString } from '../utils/storage';
 import { useSound } from '../context/SoundContext';
+import { linkChildByCode, createChildForParent, unlinkChildFromParent } from '../lib/samasmDatabase';
 import { 
   Trophy, 
   Award, 
@@ -68,7 +69,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     : linkedChildren[0] || null;
 
   // التعامل مع تقديم نموذج ربط الطفل
-  const handleLinkChildSubmit = (e: React.FormEvent) => {
+  const handleLinkChildSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLinkError('');
     setLinkSuccess('');
@@ -82,71 +83,59 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
     const cleanCode = newChildCode.trim().toUpperCase();
 
-    if (parent.linkedPackCodes.includes(cleanCode)) {
+    if (parent.linkedPackCodes.some((c) => c.toUpperCase() === cleanCode)) {
       setLinkError('هذا الطفل مرتبط بحسابك بالفعل!');
       playTryAgain();
       return;
     }
 
-    const matchedProfile = allProfiles.find((p) => p.packCode.toUpperCase() === cleanCode);
-
-    if (!matchedProfile) {
-      if (onUpdateProfiles) {
-        setCanAutoCreateChild({
-          name: newChildName.trim() || 'بطل سماسم',
-          code: cleanCode,
-        });
+    try {
+      const child = await linkChildByCode(cleanCode);
+      onUpdateProfiles?.([...allProfiles.filter((p) => p.id !== child.id), child]);
+      onUpdateParent({ ...parent, linkedPackCodes: [...parent.linkedPackCodes, cleanCode] });
+      setLinkSuccess(`تم ربط حساب البطل "${child.name}" بنجاح! 🎉`);
+      playSuccessWhistle();
+      setNewChildCode('');
+      setNewChildName('');
+      setIsLinkingOpen(false);
+    } catch (err: any) {
+      const msg: string = err?.message || '';
+      if (msg.includes('CHILD_NOT_FOUND')) {
+        setCanAutoCreateChild({ name: newChildName.trim() || 'بطل سماسم', code: cleanCode });
         setLinkError(`لم يتم العثور على بطل مسجل بالكود "${cleanCode}" بعد. يمكنك الضغط على زر الإنشاء بالأسفل لإنشاء ملفه وربطه فوراً!`);
+      } else if (msg.includes('CHILD_LINKED_ELSEWHERE')) {
+        setLinkError('هذا الكود مرتبط بالفعل بحساب ولي أمر آخر.');
       } else {
-        setLinkError(`لم يتم العثور على بطل مسجل بالكود "${cleanCode}". تأكد من كتابة الكود بشكل صحيح.`);
+        console.error(err);
+        setLinkError('حدث خطأ أثناء الربط. حاول مرة أخرى.');
       }
       playTryAgain();
-      return;
     }
-
-    const updatedCodes = [...parent.linkedPackCodes, cleanCode];
-    onUpdateParent({
-      ...parent,
-      linkedPackCodes: updatedCodes,
-    });
-    setLinkSuccess(`تم ربط حساب البطل "${matchedProfile.name}" بنجاح! 🎉`);
-    playSuccessWhistle();
-    setNewChildCode('');
-    setNewChildName('');
-    setIsLinkingOpen(false);
   };
 
-  const handleAutoCreateAndLink = () => {
-    if (!canAutoCreateChild || !onUpdateProfiles) return;
+  const handleAutoCreateAndLink = async () => {
+    if (!canAutoCreateChild) return;
     const { name, code } = canAutoCreateChild;
-    const newChildProfile: UserProfile = {
-      id: 'hero-' + Date.now(),
-      name: name,
-      packCode: code,
-      gender: 'boy',
-      avatar: '👦',
-      points: 20,
-      unlockedBadgeIds: ['curiosity_spark'],
-      lastSolvedDate: null,
-      solvedChallengesCount: 0,
-      solvedCategories: [],
-      createdAt: new Date().toISOString(),
-    };
 
-    onUpdateProfiles([...allProfiles, newChildProfile]);
-
-    const updatedCodes = [...parent.linkedPackCodes, code];
-    onUpdateParent({
-      ...parent,
-      linkedPackCodes: updatedCodes,
-    });
-
-    setLinkSuccess(`تم إنشاء حساب البطل "${name}" وربطه بلوحة متابعتك بنجاح! 🎉`);
-    playSuccessWhistle();
-    setNewChildCode('');
-    setNewChildName('');
-    setCanAutoCreateChild(null);
-    setIsLinkingOpen(false);
+    try {
+      const child = await createChildForParent(name, code);
+      onUpdateProfiles?.([...allProfiles.filter((p) => p.id !== child.id), child]);
+      onUpdateParent({ ...parent, linkedPackCodes: [...parent.linkedPackCodes, code] });
+      setLinkSuccess(`تم إنشاء حساب البطل "${name}" وربطه بلوحة متابعتك بنجاح! 🎉`);
+      playSuccessWhistle();
+      setNewChildCode('');
+      setNewChildName('');
+      setCanAutoCreateChild(null);
+      setIsLinkingOpen(false);
+    } catch (err: any) {
+      console.error(err);
+      setLinkError(
+        err?.message?.includes('CODE_EXISTS')
+          ? 'هذا الكود مسجل بالفعل، حاول ربطه مباشرة.'
+          : 'تعذر إنشاء الحساب. حاول مرة أخرى.'
+      );
+      playTryAgain();
+    }
   };
 
   const handleUnlinkChild = (packCode: string, name: string) => {
@@ -154,14 +143,27 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     setUnlinkConfirmChild({ code: packCode, name });
   };
 
-  const confirmUnlink = () => {
+  const confirmUnlink = async () => {
     if (!unlinkConfirmChild) return;
-    const updatedCodes = parent.linkedPackCodes.filter(
-      (c) => c.toUpperCase() !== unlinkConfirmChild.code.toUpperCase()
+    const target = allProfiles.find(
+      (p) => p.packCode.toUpperCase() === unlinkConfirmChild.code.toUpperCase()
     );
+
+    if (target) {
+      const ok = await unlinkChildFromParent(target.id);
+      if (!ok) {
+        playTryAgain();
+        setUnlinkConfirmChild(null);
+        alert('تعذر فك الارتباط. حاول مرة أخرى.');
+        return;
+      }
+    }
+
     onUpdateParent({
       ...parent,
-      linkedPackCodes: updatedCodes,
+      linkedPackCodes: parent.linkedPackCodes.filter(
+        (c) => c.toUpperCase() !== unlinkConfirmChild.code.toUpperCase()
+      ),
     });
     setUnlinkConfirmChild(null);
     setSelectedChildId(null);

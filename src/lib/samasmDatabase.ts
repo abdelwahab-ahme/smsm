@@ -367,23 +367,103 @@ export async function createParentProfile(
   return data;
 }
 
+export function mapProfileRow(p: any): UserProfile {
+  return {
+    id: p.id,
+    name: p.name,
+    packCode: p.pack_code || '',
+    gender: p.gender || 'boy',
+    avatar: p.avatar || '👦',
+    religion: p.religion || 'muslim',
+    points: p.points ?? 20,
+    unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
+    lastSolvedDate: p.last_solved_date,
+    solvedChallengesCount: p.solved_challenges_count ?? 0,
+    solvedCategories: p.solved_categories || [],
+    retryCount: p.retry_count ?? 0,
+    mathSpeedHighScore: p.math_speed_high_score ?? 0,
+    wheelSpinsCount: p.wheel_spins_count ?? 0,
+    labPointsEarned: p.lab_points_earned ?? 0,
+    createdAt: p.created_at,
+  } as UserProfile;
+}
+
 export async function getChildrenByParentId(parentId: string): Promise<UserProfile[]> {
-  try {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('parent_id', parentId);
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('parent_id', parentId);
 
-    if (error) {
-      console.error('Error fetching children for parent:', error.message);
-      return [];
-    }
-
-    return (data || []) as UserProfile[];
-  } catch (err) {
-    console.error('Unexpected error in getChildrenByParentId:', err);
+  if (error) {
+    console.error('Error fetching children for parent:', error.message);
     return [];
   }
+  return (data || []).map(mapProfileRow);
+}
+
+export async function linkChildByCode(code: string): Promise<UserProfile> {
+  const { data, error } = await supabase.rpc('link_child_by_code', { p_code: code });
+  if (error) throw error;
+  return mapProfileRow(data);
+}
+
+export async function createChildForParent(name: string, code: string): Promise<UserProfile> {
+  const { data, error } = await supabase.rpc('create_child_for_parent', { p_name: name, p_code: code });
+  if (error) throw error;
+  return mapProfileRow(data);
+}
+
+export async function unlinkChildFromParent(childId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('unlink_child', { p_child_id: childId });
+  if (error) {
+    console.error('Unlink failed:', error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+// للأدمن فقط: تحميل كل الأطفال وأولياء الأمور مع الربط
+export async function loadAdminData(): Promise<{ profiles: UserProfile[]; parents: ParentProfile[] }> {
+  const [pRes, parRes] = await Promise.all([
+    supabase.from('user_profiles').select('*'),
+    supabase.from('parents').select('*'),
+  ]);
+  if (pRes.error) console.error('Admin load profiles failed:', pRes.error.message);
+  if (parRes.error) console.error('Admin load parents failed:', parRes.error.message);
+
+  const rows = pRes.data || [];
+  const profiles = rows.map(mapProfileRow);
+  const parents: ParentProfile[] = (parRes.data || []).map((p: any) => ({
+    id: p.id,
+    name: p.name || 'ولي أمر',
+    email: p.email || '',
+    phone: p.phone ?? undefined,
+    linkedPackCodes: rows.filter((c: any) => c.parent_id === p.id).map((c: any) => c.pack_code),
+    createdAt: p.created_at,
+  }));
+  return { profiles, parents };
+}
+
+// للأدمن فقط: إضافة ولي أمر وربط الأكواد
+export async function createParentByAdmin(parent: ParentProfile): Promise<boolean> {
+  const { error } = await supabase.from('parents').insert({
+    id: parent.id,
+    name: parent.name,
+    email: parent.email.toLowerCase(),
+  });
+  if (error) {
+    console.error('Admin create parent failed:', error.message);
+    return false;
+  }
+  const codes = parent.linkedPackCodes.map((c) => c.toUpperCase());
+  if (codes.length > 0) {
+    const { error: linkErr } = await supabase
+      .from('user_profiles')
+      .update({ parent_id: parent.id })
+      .in('pack_code', codes);
+    if (linkErr) console.error('Admin link children failed:', linkErr.message);
+  }
+  return true;
 }
 
 export async function signOutSupabase() {

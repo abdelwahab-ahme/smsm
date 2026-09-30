@@ -29,6 +29,8 @@ import {
   getParentByEmail,
   createParentProfile,
   isCurrentUserAdmin,
+  linkChildByCode,
+  createChildForParent,
 } from '../lib/samasmDatabase';
 
 interface AuthScreenProps {
@@ -157,7 +159,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     { name: '', packCode: '' },
   ]);
   const [parentRegError, setParentRegError] = useState('');
-
+  const [parentRegOtpSent, setParentRegOtpSent] = useState(false);
+  const [parentRegOtp, setParentRegOtp] = useState('');
+  const [parentRegLoading, setParentRegLoading] = useState(false);
   // Admin Tab State
   const [adminEmailInput, setAdminEmailInput] = useState('');
   const [adminOtpSent, setAdminOtpSent] = useState(false);
@@ -361,38 +365,107 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  const handleParentRegisterSubmit = (e: React.FormEvent) => {
+  const handleParentRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setParentRegError('');
+
+    const cleanEmail = parentRegEmail.trim().toLowerCase();
 
     if (!parentRegName.trim()) {
       setParentRegError('يرجى كتابة اسم ولي الأمر');
       playTryAgain();
       return;
     }
-
-    if (!parentRegEmail.trim() || !parentRegEmail.includes('@')) {
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       setParentRegError('يرجى إدخال بريد إلكتروني صحيح');
       playTryAgain();
       return;
     }
-
-    const validChildren = parentChildrenList.filter(c => c.name.trim() && c.packCode.trim());
+    const validChildren = parentChildrenList.filter((c) => c.name.trim() && c.packCode.trim());
     if (validChildren.length === 0) {
       setParentRegError('يرجى إضافة طفل واحد على الأقل مع الاسم وكود الكيس');
       playTryAgain();
       return;
     }
 
-    validChildren.forEach(child => savePackCodeToDevice(child.packCode));
+    try {
+      setParentRegLoading(true);
 
-    onRegisterParentWithChildren(
-      { name: parentRegName.trim(), email: parentRegEmail.trim().toLowerCase() },
-      validChildren
-    );
+      // الخطوة 1: إرسال كود التحقق للبريد
+      if (!parentRegOtpSent) {
+        await sendParentOtp(cleanEmail);
+        setParentRegOtpSent(true);
+        setParentRegOtp('');
+        playSuccessWhistle();
+        return;
+      }
 
-    refreshDeviceProfiles();
-    playSuccessWhistle();
+      // الخطوة 2: التحقق من الكود
+      if (!parentRegOtp.trim()) {
+        setParentRegError('يرجى إدخال كود التحقق المرسل إلى بريدك');
+        playTryAgain();
+        return;
+      }
+
+      const authResult = await verifyParentOtp(cleanEmail, parentRegOtp.trim());
+      const authUser = authResult.user;
+      if (!authUser) {
+        setParentRegError('تعذر إنشاء الجلسة. حاول مرة أخرى.');
+        playTryAgain();
+        return;
+      }
+
+      let parent = await getParentByEmail(cleanEmail);
+      if (!parent) {
+        await createParentProfile(authUser.id, parentRegName.trim(), cleanEmail);
+        parent = await getParentByEmail(cleanEmail);
+      }
+      if (!parent) {
+        setParentRegError('تم التحقق من البريد لكن تعذر إنشاء ملف ولي الأمر.');
+        playTryAgain();
+        return;
+      }
+
+      // الخطوة 3: ربط الأطفال (أو إنشاؤهم لو الكود جديد)
+      const linkedCodes: string[] = [];
+      const skipped: string[] = [];
+
+      for (const child of validChildren) {
+        const code = child.packCode.trim().toUpperCase();
+        try {
+          await linkChildByCode(code);
+        } catch (err: any) {
+          if (err?.message?.includes('CHILD_NOT_FOUND')) {
+            try {
+              await createChildForParent(child.name.trim(), code);
+            } catch (createErr) {
+              console.error('create child failed', code, createErr);
+              skipped.push(code);
+              continue;
+            }
+          } else {
+            console.error('link child failed', code, err);
+            skipped.push(code);
+            continue;
+          }
+        }
+        savePackCodeToDevice(code);
+        linkedCodes.push(code);
+      }
+
+      if (skipped.length > 0) {
+        alert(`تعذر ربط الأكواد التالية (ربما مرتبطة بولي أمر آخر): ${skipped.join('، ')}`);
+      }
+
+      playSuccessWhistle();
+      onParentLogin({ ...parent, linkedPackCodes: linkedCodes });
+    } catch (error: any) {
+      console.error(error);
+      setParentRegError(error?.message || 'حدث خطأ أثناء التسجيل. حاول مرة أخرى.');
+      playTryAgain();
+    } finally {
+      setParentRegLoading(false);
+    }
   };
 
   // Admin Handlers
@@ -1038,6 +1111,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <input
                       type="email"
                       value={parentRegEmail}
+                      disabled={parentRegOtpSent}
                       onChange={(e) => setParentRegEmail(e.target.value)}
                       placeholder="parent@example.com"
                       className="w-full px-3.5 py-2 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-bold text-xs"
@@ -1096,6 +1170,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     ))}
                   </div>
 
+                  {parentRegOtpSent && (
+                    <div>
+                      <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1 text-right">
+                        كود التحقق المرسل إلى بريدك:
+                      </label>
+                      <input
+                        type="text"
+                        value={parentRegOtp}
+                        onChange={(e) => setParentRegOtp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="123456"
+                        dir="ltr"
+                        inputMode="numeric"
+                        autoFocus
+                        className="w-full px-3.5 py-2.5 rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-slate-950 dark:text-white font-mono font-black text-center text-sm"
+                        required
+                      />
+                    </div>
+                  )}
+
                   {parentRegError && (
                     <p className="text-xs font-black text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 p-2.5 rounded-xl border border-rose-200">
                       {parentRegError}
@@ -1104,9 +1197,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                   <button
                     type="submit"
-                    className="w-full py-3 px-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
+                    disabled={parentRegLoading}
+                    className="w-full py-3 px-4 rounded-2xl bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white font-black text-xs sm:text-sm shadow-md cursor-pointer"
                   >
-                    إنشاء وربط الحسابات أونلاين 🚀
+                    {parentRegLoading
+                      ? 'جاري المعالجة...'
+                      : parentRegOtpSent
+                      ? 'تأكيد وإنشاء الحساب 🚀'
+                      : 'إرسال كود التحقق ✉️'}
                   </button>
                 </form>
               )}

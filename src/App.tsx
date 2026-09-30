@@ -11,6 +11,8 @@ import {
   isCurrentUserAdmin,
   signOutSupabase,
   testSupabaseConnection,
+  loadAdminData,
+  createParentByAdmin,
 } from './lib/samasmDatabase';
 import { logAction } from './lib/audit';
 
@@ -57,66 +59,24 @@ function AppContent() {
   // 🌐 Supabase Integration & Direct Database Sync
   // ----------------------------------------------------
   useEffect(() => {
-    // 1. اختبار اتصال قاعدة البيانات
     testSupabaseConnection().then((result) => {
-      if (result.success) {
-        console.log('✅ Supabase متصل بنجاح!', result.data);
-      } else {
-        console.error('❌ خطأ في الاتصال بـ Supabase:', result.error);
-      }
+      if (!result.success) console.error('❌ خطأ في الاتصال بـ Supabase:', result.error);
     });
-
-    // 2. جلب الحسابات (الأبطال وأولياء الأمور) من Supabase مباشرة
-    async function loadAllOnlineData() {
-      try {
-        // جلب الأبطال
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('user_profiles')
-          .select('*');
-
-        if (profilesData && !profilesError) {
-          const onlineProfiles: UserProfile[] = profilesData.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            packCode: p.pack_code || '',
-            gender: p.gender || 'boy',
-            avatar: p.avatar || '👦',
-            points: p.points ?? 20,
-            unlockedBadgeIds: p.unlocked_badge_ids || ['curiosity_spark'],
-            lastSolvedDate: p.last_solved_date,
-            solvedChallengesCount: p.solved_challenges_count ?? 0,
-            solvedCategories: p.solved_categories || [],
-            retryCount: p.retry_count ?? 0,
-            mathSpeedHighScore: p.math_speed_high_score ?? 0,
-            wheelSpinsCount: p.wheel_spins_count ?? 0,
-            labPointsEarned: p.lab_points_earned ?? 0,
-            createdAt: p.created_at,
-          }));
-          setProfiles(onlineProfiles);
-        }
-
-        // جلب أولياء الأمور
-        const { data: parentsData, error: parentsError } = await supabase
-          .from('parents')
-          .select('*');
-
-        if (parentsData && !parentsError) {
-          const onlineParents: ParentProfile[] = parentsData.map((p: any) => ({
-            id: p.id,
-            name: p.name || 'ولي أمر',
-            email: p.email || '',
-            linkedPackCodes: p.linked_pack_codes || [],
-            createdAt: p.created_at,
-          }));
-          setParents(onlineParents);
-        }
-      } catch (err) {
-        console.error('Failed to sync data directly from Supabase:', err);
-      }
-    }
-
-    loadAllOnlineData();
   }, []);
+
+  // 📥 تحميل كل البيانات للأدمن فقط بعد تأكيد صلاحياته
+  useEffect(() => {
+    if (activeRole !== 'admin' || !isAdminAuthenticated) return;
+    let cancelled = false;
+    loadAdminData().then(({ profiles: allProfiles, parents: allParents }) => {
+      if (cancelled) return;
+      setProfiles(allProfiles);
+      setParents(allParents);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRole, isAdminAuthenticated]);
   // ♻️ استرجاع الجلسة بعد تحديث الصفحة
   useEffect(() => {
     let mounted = true;
@@ -362,33 +322,48 @@ function AppContent() {
     setParents((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   };
 
-  const handleUpdateAllParents = (updatedList: ParentProfile[]) => {
+  const handleUpdateAllParents = async (updatedList: ParentProfile[]) => {
+    const previous = parents;
     setParents(updatedList);
+
+    try {
+      for (const p of updatedList) {
+        if (!previous.some((o) => o.id === p.id)) {
+          const ok = await createParentByAdmin(p);
+          if (!ok) throw new Error('create parent failed: ' + p.email);
+        }
+      }
+    } catch (err) {
+      console.error('❌ Failed to sync parents:', err);
+      setParents(previous);
+      alert('تعذر حفظ ولي الأمر في قاعدة البيانات (ربما البريد مسجل من قبل).');
+    }
   };
 
   useEffect(() => {
-    async function loadParentChildren() {
-      if (activeRole === 'parent' && activeParentId) {
-        const dbChildren = await getChildrenByParentId(activeParentId);
-        if (dbChildren && dbChildren.length > 0) {
-          setProfiles((prev) => {
-            const merged = [...prev];
-            dbChildren.forEach((child) => {
-              const index = merged.findIndex((p) => p.id === child.id || p.packCode === child.packCode);
-              if (index >= 0) {
-                merged[index] = child;
-              } else {
-                merged.push(child);
-              }
-            });
-            return merged;
-          });
-        }
-      }
-    }
-    loadParentChildren();
-  }, [activeRole, activeParentId]);
+    if (activeRole !== 'parent' || !activeParentId) return;
+    let cancelled = false;
 
+    (async () => {
+      const children = await getChildrenByParentId(activeParentId);
+      if (cancelled) return;
+
+      setProfiles((prev) => {
+        const map = new Map(prev.map((p) => [p.id, p]));
+        children.forEach((c) => map.set(c.id, c));
+        return Array.from(map.values());
+      });
+      setParents((prev) =>
+        prev.map((p) =>
+          p.id === activeParentId ? { ...p, linkedPackCodes: children.map((c) => c.packCode) } : p
+        )
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRole, activeParentId]);
   // ----------------------------------------------------
   // Admin Handlers
   // ----------------------------------------------------
@@ -476,7 +451,7 @@ function AppContent() {
         parent={currentParent}
         allProfiles={profiles}
         onUpdateParent={handleUpdateParent}
-        onUpdateProfiles={handleUpdateAllProfiles}
+        onUpdateProfiles={setProfiles}
         onLogout={handleLogout}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
