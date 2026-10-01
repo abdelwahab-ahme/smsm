@@ -25,6 +25,7 @@ import { QUESTION_BANK, setActiveQuestionBank } from '../data/questionBank';
 import { LAB_EXPERIMENTS } from '../data/labExperiments';
 import { DAILY_CHALLENGES } from '../utils/storage';
 import { useSound } from '../context/SoundContext';
+import { IslamicContentManager } from './IslamicContentManager';
 import { deleteChildProfileFromDb, deleteParentFromDb } from '../lib/samasmDatabase';
 import { logAction } from '../lib/audit';
 import { 
@@ -87,7 +88,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onLockAdmin,
 }) => {
   // Navigation sub-tabs inside Admin Dashboard
-  const [activeAdminTab, setActiveAdminTab] = useState<'students' | 'parents' | 'questions' | 'lab' | 'security'>('students');
+  const [activeAdminTab, setActiveAdminTab] = useState<'students' | 'parents' | 'questions' | 'lab' | 'islamic' | 'security'>('students');
 
   // Search filter
   const [searchTerm, setSearchTerm] = useState('');
@@ -847,7 +848,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <FlaskConical className="w-4 h-4" />
           <span>تجارب المعمل العجيب ({experiments.length})</span>
         </button>
-
+        <button
+          onClick={() => {
+            playClick();
+            setActiveAdminTab('islamic');
+          }}
+          className={`flex-1 py-3 px-3 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            activeAdminTab === 'islamic'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <span>🌙</span>
+          <span>ركن الإسلاميات</span>
+        </button>
         <button
           onClick={() => {
             playClick();
@@ -1401,6 +1415,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* ================================================================ */}
       {/* TAB 5: SECURITY CREDENTIALS & DATE SIMULATION */}
       {/* ================================================================ */}
+      {activeAdminTab === 'islamic' && <IslamicContentManager />}
       {activeAdminTab === 'security' && (
         <div className="space-y-4">
           

@@ -1,25 +1,28 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { UserProfile, BankQuestion } from '../../types';
 import { getSmartBankQuestion, getQuestionBankStats } from '../../data/questionBank';
 import { useSound } from '../../context/SoundContext';
 import { fireDailySuccessConfetti, fireBadgeUnlockConfetti } from '../../utils/confettiCelebration';
+import { IslamicContent, DEFAULT_CONTENT } from '../../data/islamicContent';
+import { fetchIslamicContent } from '../../lib/islamicContentDb';
 import { Lightbulb, CheckCircle2, XCircle, ArrowRight, RotateCcw, Check } from 'lucide-react';
-
+ 
 interface IslamicCornerProps {
   activeProfile: UserProfile;
   onUpdateProfile: (updated: UserProfile) => void;
   onOpenBadgesTab?: () => void;
 }
-
+ 
 type AwardResult = { gained: number; badge: string | null };
-
+ 
 interface SectionProps {
+  content: IslamicContent;
   profile: UserProfile;
   solvedIds: string[];
   isGirl: boolean;
   award: (itemId: string, points: number) => AwardResult;
 }
-
+ 
 // ============================================================
 // قواعد الأوسمة (لازم تتطابق مع الأوسمة المضافة في utils/storage.ts)
 // ============================================================
@@ -28,212 +31,7 @@ const BADGE_RULES = [
   { id: 'good_manners', prefix: 'isl-manners-', needed: 5, bonus: 20, name: 'صاحب الخلق الحسن' },
   { id: 'fortress_hero', prefix: 'isl-dhikr-', needed: 3, bonus: 25, name: 'حصن البطل' },
 ];
-
-// ============================================================
-// 1) قصص الأنبياء
-// ============================================================
-interface Story {
-  id: string;
-  title: string;
-  icon: string;
-  summary: string;
-  pages: string[];
-  quiz: { question: string; options: string[]; correctIndex: number; explanation: string };
-}
-
-const STORIES: Story[] = [
-  {
-    id: 'noah',
-    title: 'سيدنا نوح والسفينة',
-    icon: '🚢',
-    summary: 'قصة الصبر والثقة بالله',
-    pages: [
-      'أرسل الله سيدنا نوحاً عليه السلام إلى قومه ليدعوهم إلى عبادة الله وحده.',
-      'دعاهم نوح ليلاً ونهاراً زمناً طويلاً، وصبر على أذاهم وسخريتهم، ولم ييأس.',
-      'أمره الله ببناء سفينة كبيرة، وكان قومه يسخرون منه وهو يبنيها، لكنه كان واثقاً بوعد الله.',
-      'جاء الطوفان بأمر الله، فركب المؤمنون السفينة ومعهم من كل نوع من الحيوانات زوجان اثنان، ونجّاهم الله.',
-    ],
-    quiz: {
-      question: 'ما أجمل صفة تعلمناها من سيدنا نوح عليه السلام؟',
-      options: ['الصبر وعدم اليأس من فعل الخير', 'الغضب السريع', 'الاستسلام عند أول صعوبة'],
-      correctIndex: 0,
-      explanation: 'صبر نوح عليه السلام على قومه طويلاً وبقي واثقاً بالله، فنجّاه الله ومن آمن معه.',
-    },
-  },
-  {
-    id: 'yunus',
-    title: 'سيدنا يونس والحوت',
-    icon: '🐋',
-    summary: 'قصة الدعاء وقت الشدة',
-    pages: [
-      'أرسل الله سيدنا يونس عليه السلام إلى أهل مدينة كبيرة ليدعوهم إلى الإيمان بالله.',
-      'ترك يونس قومه قبل أن يأذن الله له بذلك، وركب سفينة في البحر.',
-      'ابتلعه حوت كبير بأمر الله، فصار في ظلمات شديدة.',
-      'فدعا ربه قائلاً: لا إله إلا أنت سبحانك إني كنت من الظالمين، فاستجاب الله له ونجّاه.',
-    ],
-    quiz: {
-      question: 'ماذا قال سيدنا يونس عليه السلام وهو في بطن الحوت؟',
-      options: [
-        'لا إله إلا أنت سبحانك إني كنت من الظالمين',
-        'الحمد لله الذي أحيانا بعد ما أماتنا',
-        'سبحان الذي سخر لنا هذا',
-      ],
-      correctIndex: 0,
-      explanation: 'دعا يونس ربه بهذا الدعاء فاستجاب الله له، فنتعلم أن نلجأ إلى الله وقت الشدة.',
-    },
-  },
-  {
-    id: 'sulaiman-ant',
-    title: 'سيدنا سليمان والنملة',
-    icon: '🐜',
-    summary: 'قصة الحرص على من حولنا',
-    pages: [
-      'آتى الله سيدنا سليمان عليه السلام ملكاً عظيماً، وعلّمه منطق الطير.',
-      'خرج سليمان يوماً بجنوده الكثيرين، فمرّوا بوادي النمل.',
-      'قالت نملة لقومها: يا أيها النمل ادخلوا مساكنكم لا يحطمنكم سليمان وجنوده وهم لا يشعرون.',
-      'فتبسّم سليمان ضاحكاً من قولها، وشكر الله على نعمته، وطلب منه أن يعمل صالحاً يرضاه.',
-    ],
-    quiz: {
-      question: 'ماذا فعلت النملة حين رأت جنود سليمان؟',
-      options: [
-        'حذّرت قومها ونصحتهم بدخول مساكنهم',
-        'هربت وحدها وتركت قومها',
-        'لم تهتم بما حولها',
-      ],
-      correctIndex: 0,
-      explanation: 'كانت النملة حريصة على قومها فنصحتهم وحذّرتهم، وهذا يعلّمنا أن نحرص على من حولنا.',
-    },
-  },
-];
-
-// ============================================================
-// 2) تحدي الأخلاق والآداب (احفظ أدبك)
-// ============================================================
-interface Manner {
-  id: string;
-  icon: string;
-  situation: string;
-  options: string[];
-  correctIndex: number;
-  note: string;
-}
-
-const MANNERS: Manner[] = [
-  {
-    id: 'm1',
-    icon: '🚪',
-    situation: 'وصلت إلى باب غرفة والدك وهو مغلق، وتريد الدخول.',
-    options: ['أطرق الباب وأستأذن ثم أدخل بعد الإذن', 'أفتح الباب مباشرة', 'أصرخ بصوت عالٍ حتى يفتح لي'],
-    correctIndex: 0,
-    note: 'الاستئذان من آداب الإسلام، فنطرق الباب ونستأذن قبل الدخول.',
-  },
-  {
-    id: 'm2',
-    icon: '😊',
-    situation: 'قابلت جارك في الطريق.',
-    options: ['أبتسم وأقول: السلام عليكم', 'أمشي دون أن أنظر إليه', 'أتجاهله لأنني مشغول'],
-    correctIndex: 0,
-    note: 'السلام والابتسامة من أجمل الأخلاق، وعلّمنا النبي ﷺ أن تبسّمك في وجه أخيك صدقة.',
-  },
-  {
-    id: 'm3',
-    icon: '🍌',
-    situation: 'رأيت قشرة موز ملقاة على الرصيف، وقد يتعثر بها الناس.',
-    options: ['أرفعها وأضعها في سلة المهملات', 'أتركها وأمشي', 'أبعدها بقدمي إلى منتصف الطريق'],
-    correctIndex: 0,
-    note: 'إماطة الأذى عن الطريق من الأعمال الطيبة، وهي صدقة.',
-  },
-  {
-    id: 'm4',
-    icon: '👩',
-    situation: 'طلبت منك أمك أن تساعدها وأنت تلعب.',
-    options: ['أستجيب بسرعة وأقول: حاضر يا أمي', 'أتظاهر أنني لم أسمع', 'أقول: لن أساعدك'],
-    correctIndex: 0,
-    note: 'بر الوالدين من أحب الأعمال إلى الله.',
-  },
-  {
-    id: 'm5',
-    icon: '🍽️',
-    situation: 'جلست لتأكل وجبتك.',
-    options: ['أقول بسم الله وآكل بيميني', 'آكل بشمالي دون أن أسمّي الله', 'آكل وأنا أجري وألعب'],
-    correctIndex: 0,
-    note: 'علّمنا النبي ﷺ أن نسمّي الله ونأكل باليمين ومما يلينا.',
-  },
-  {
-    id: 'm6',
-    icon: '🥛',
-    situation: 'كسرت كوب أخيك عن غير قصد.',
-    options: ['أعتذر له وأقول الحقيقة', 'أقول إن القطة هي من كسره', 'أخبئ الكوب المكسور'],
-    correctIndex: 0,
-    note: 'الصدق يهدي إلى الخير، والاعتذار من الأخلاق الجميلة.',
-  },
-  {
-    id: 'm7',
-    icon: '✏️',
-    situation: 'زميلك نسي قلمه ويحتاج إلى قلم، ومعك قلمان.',
-    options: ['أعطيه قلماً وأفرح بمساعدته', 'أخبئ الأقلام عنه', 'أقول له: لا أحب أن أعطيك'],
-    correctIndex: 0,
-    note: 'التعاون والكرم من صفات المسلم، والله يحب المحسنين.',
-  },
-  {
-    id: 'm8',
-    icon: '🤝',
-    situation: 'رأيت زميلاً يناديك صديقك بلقب يكرهه ليضحك الأصدقاء.',
-    options: ['أنصحه بلطف ألا يفعل ذلك', 'أضحك معه وأشجعه', 'أنادي صديقي بنفس اللقب'],
-    correctIndex: 0,
-    note: 'ينهانا الله عن التنابز بالألقاب، فنحرص على ألا نؤذي مشاعر الآخرين.',
-  },
-];
-
-// ============================================================
-// 4) حصن البطل: رتّب الدعاء أو السورة
-// ============================================================
-interface HisnItem {
-  id: string;
-  icon: string;
-  title: string;
-  when: string;
-  parts: string[];
-}
-
-const HISN: HisnItem[] = [
-  {
-    id: 'wake',
-    icon: '🌅',
-    title: 'دعاء الاستيقاظ من النوم',
-    when: 'نقوله عندما نستيقظ صباحاً',
-    parts: ['الحمد لله', 'الذي أحيانا', 'بعد ما أماتنا', 'وإليه النشور'],
-  },
-  {
-    id: 'toilet',
-    icon: '🚿',
-    title: 'دعاء دخول الخلاء',
-    when: 'نقوله قبل دخول الحمّام',
-    parts: ['بسم الله', 'اللهم إني أعوذ بك', 'من الخبث', 'والخبائث'],
-  },
-  {
-    id: 'ikhlas',
-    icon: '⭐',
-    title: 'سورة الإخلاص',
-    when: 'سورة قصيرة نحبها ونقرؤها كثيراً',
-    parts: ['قل هو الله أحد', 'الله الصمد', 'لم يلد ولم يولد', 'ولم يكن له كفواً أحد'],
-  },
-  {
-    id: 'food',
-    icon: '🍎',
-    title: 'دعاء بعد الطعام',
-    when: 'نقوله بعد أن ننتهي من الأكل',
-    parts: ['الحمد لله', 'الذي أطعمنا', 'وسقانا', 'وجعلنا مسلمين'],
-  },
-  {
-    id: 'ride',
-    icon: '🚗',
-    title: 'دعاء ركوب وسيلة المواصلات',
-    when: 'ندعو به عندما نركب السيارة أو الحافلة',
-    parts: ['سبحان الذي سخر لنا هذا', 'وما كنا له مقرنين', 'وإنا إلى ربنا لمنقلبون'],
-  },
-];
-
+ 
 // ============================================================
 // أدوات مساعدة
 // ============================================================
@@ -245,7 +43,7 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return a;
 }
-
+ 
 function shuffleDifferent(parts: string[]): string[] {
   const original = parts.join('|');
   for (let i = 0; i < 10; i++) {
@@ -254,27 +52,32 @@ function shuffleDifferent(parts: string[]): string[] {
   }
   return [...parts].reverse();
 }
-
+ 
 const optionClass = (selected: boolean) =>
   `p-4 rounded-2xl text-right font-extrabold text-sm border-2 transition-all cursor-pointer ${
     selected
       ? 'bg-teal-100 dark:bg-teal-950 border-teal-500 text-teal-950 dark:text-teal-100 shadow-xs'
       : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-teal-300 text-slate-800 dark:text-slate-200'
   }`;
-
+ 
 // ============================================================
 // قسم القصص
 // ============================================================
-const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
+const StorySection: React.FC<SectionProps> = ({ content, solvedIds, award, isGirl }) => {
   const { playClick, playChime, playPointsEarned, playTryAgain } = useSound();
   const [openId, setOpenId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [result, setResult] = useState<{ ok: boolean; gained: number } | null>(null);
-
-  const story = STORIES.find((s) => s.id === openId) || null;
+ 
+  const story = content.stories.find((s) => s.id === openId) || null;
+  const quizOrder = useMemo(
+    () => (story ? shuffle(story.quiz.options.map((_, i) => i)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [story?.id]
+  );
   const isDone = (id: string) => solvedIds.includes(`isl-story-${id}`);
-
+ 
   const openStory = (id: string) => {
     playClick();
     setOpenId(id);
@@ -282,7 +85,7 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
     setPicked(null);
     setResult(null);
   };
-
+ 
   const checkAnswer = () => {
     if (!story || picked === null) return;
     if (picked === story.quiz.correctIndex) {
@@ -296,7 +99,7 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
       setResult({ ok: false, gained: 0 });
     }
   };
-
+ 
   if (!story) {
     return (
       <div className="space-y-3">
@@ -304,7 +107,7 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
           اقرأ القصة صفحة بعد صفحة، ثم أجب عن سؤالها لتجمع النقاط والأوسمة.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {STORIES.map((s) => (
+          {content.stories.map((s) => (
             <button
               key={s.id}
               onClick={() => openStory(s.id)}
@@ -327,9 +130,9 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
       </div>
     );
   }
-
+ 
   const inQuiz = page >= story.pages.length;
-
+ 
   return (
     <div className="space-y-4">
       <button
@@ -342,19 +145,19 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
         <ArrowRight className="w-3.5 h-3.5" />
         <span>الرجوع إلى القصص</span>
       </button>
-
+ 
       <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border-2 border-slate-200 dark:border-slate-700 space-y-4">
         <div className="flex items-center gap-3">
           <span className="text-4xl">{story.icon}</span>
           <h4 className="text-lg sm:text-xl font-black text-slate-950 dark:text-white">{story.title}</h4>
         </div>
-
+ 
         {!inQuiz ? (
           <>
             <p className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 leading-loose min-h-[7rem]">
               {story.pages[page]}
             </p>
-
+ 
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-1.5">
                 {story.pages.map((_, i) => (
@@ -364,7 +167,7 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
                   />
                 ))}
               </div>
-
+ 
               <div className="flex items-center gap-2">
                 {page > 0 && (
                   <button
@@ -394,9 +197,9 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
             <p className="text-base sm:text-lg font-black text-slate-950 dark:text-white leading-relaxed">
               {story.quiz.question}
             </p>
-
+ 
             <div className="grid grid-cols-1 gap-2.5">
-              {story.quiz.options.map((opt, i) => (
+              {quizOrder.map((i) => (
                 <button
                   key={i}
                   disabled={result?.ok}
@@ -407,11 +210,11 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
                   }}
                   className={optionClass(picked === i)}
                 >
-                  {opt}
+                  {story.quiz.options[i]}
                 </button>
               ))}
             </div>
-
+ 
             {!result?.ok && (
               <button
                 onClick={checkAnswer}
@@ -425,7 +228,7 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
                 تأكيد الإجابة
               </button>
             )}
-
+ 
             {result && (
               <div
                 className={`p-4 rounded-2xl border-2 flex items-start gap-3 ${
@@ -451,7 +254,7 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
                 </div>
               </div>
             )}
-
+ 
             {result?.ok && (
               <button
                 onClick={() => {
@@ -469,21 +272,30 @@ const StorySection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
     </div>
   );
 };
-
+ 
 // ============================================================
 // قسم الأخلاق والآداب
 // ============================================================
-const MannersSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
+const MannersSection: React.FC<SectionProps> = ({ content, solvedIds, award, isGirl }) => {
   const { playClick, playChime, playPointsEarned, playTryAgain } = useSound();
-  const todayIndex = Math.floor(Date.now() / 86400000) % MANNERS.length;
+  const total = content.manners.length;
+  const todayIndex = total > 0 ? Math.floor(Date.now() / 86400000) % total : 0;
   const [index, setIndex] = useState(todayIndex);
   const [wrong, setWrong] = useState<number[]>([]);
   const [won, setWon] = useState<{ gained: number } | null>(null);
-
-  const item = MANNERS[index];
-  const doneCount = MANNERS.filter((m) => solvedIds.includes(`isl-manners-${m.id}`)).length;
+ 
+  const item = total > 0 ? content.manners[index % total] : null;
+  const optionOrder = useMemo(
+    () => (item ? shuffle(item.options.map((_, i) => i)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [item?.id]
+  );
+ 
+  if (!item) return null;
+ 
+  const doneCount = content.manners.filter((m) => solvedIds.includes(`isl-manners-${m.id}`)).length;
   const alreadyDone = solvedIds.includes(`isl-manners-${item.id}`);
-
+ 
   const choose = (i: number) => {
     if (won) return;
     if (i === item.correctIndex) {
@@ -497,14 +309,14 @@ const MannersSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) =>
       setWrong((w) => (w.includes(i) ? w : [...w, i]));
     }
   };
-
+ 
   const next = () => {
     playClick();
-    setIndex((index + 1) % MANNERS.length);
+    setIndex((index + 1) % content.manners.length);
     setWrong([]);
     setWon(null);
   };
-
+ 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -512,10 +324,10 @@ const MannersSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) =>
           اختر التصرف الذي يحبه الله ورسوله ﷺ واكسب الحسنات والنقاط.
         </p>
         <span className="text-[11px] font-black text-teal-800 dark:text-teal-300 bg-teal-100 dark:bg-teal-950 px-3 py-1 rounded-full shrink-0">
-          {doneCount} من {MANNERS.length} مواقف
+          {doneCount} من {content.manners.length} مواقف
         </span>
       </div>
-
+ 
       <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border-2 border-slate-200 dark:border-slate-700 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-black text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-3 py-1 rounded-full">
@@ -528,16 +340,17 @@ const MannersSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) =>
             </span>
           )}
         </div>
-
+ 
         <div className="flex items-start gap-3">
           <span className="text-4xl">{item.icon}</span>
           <p className="text-base sm:text-lg font-black text-slate-950 dark:text-white leading-relaxed">
             {item.situation}
           </p>
         </div>
-
+ 
         <div className="grid grid-cols-1 gap-2.5">
-          {item.options.map((opt, i) => {
+          {optionOrder.map((i) => {
+            const opt = item.options[i];
             const isWrong = wrong.includes(i);
             const isRight = won && i === item.correctIndex;
             return (
@@ -558,13 +371,13 @@ const MannersSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) =>
             );
           })}
         </div>
-
+ 
         {wrong.length > 0 && !won && (
           <p className="text-xs font-black text-rose-700 dark:text-rose-300">
             فكّر مرة أخرى، واختر التصرف الأجمل.
           </p>
         )}
-
+ 
         {won && (
           <div className="p-4 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 border-2 border-emerald-400 text-emerald-950 dark:text-emerald-100 space-y-1.5">
             <p className="font-black text-sm">
@@ -585,31 +398,31 @@ const MannersSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) =>
     </div>
   );
 };
-
+ 
 // ============================================================
 // قسم "هل تعلم؟" (أسئلة إسلامية من بنك الأسئلة في الداتابيز)
 // ============================================================
 const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGirl }) => {
   const { playClick, playPop, playChime, playPointsEarned, playTryAgain } = useSound();
   const stats = getQuestionBankStats(profile).islamic;
-
+ 
   const [question, setQuestion] = useState<BankQuestion | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [showHint, setShowHint] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; gained: number } | null>(null);
-
+ 
   const loadNext = () => {
     setSelected(null);
     setShowHint(false);
     setFeedback(null);
     setQuestion(getSmartBankQuestion(profile, 'islamic'));
   };
-
+ 
   useEffect(() => {
     loadNext();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
+ 
   const verify = () => {
     if (!question || !selected) return;
     if (selected === question.correctOptionId) {
@@ -623,7 +436,7 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
       setFeedback({ ok: false, gained: 0 });
     }
   };
-
+ 
   if (stats.total === 0 || !question) {
     return (
       <p className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center py-8">
@@ -631,7 +444,7 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
       </p>
     );
   }
-
+ 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -642,7 +455,7 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
           {stats.solved} من {stats.total} سؤالاً
         </span>
       </div>
-
+ 
       <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border-2 border-slate-200 dark:border-slate-700 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">{question.title}</span>
@@ -658,11 +471,11 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
             </span>
           </div>
         </div>
-
+ 
         <p className="text-base sm:text-lg font-black text-slate-950 dark:text-white leading-relaxed">
           {question.question}
         </p>
-
+ 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {question.options.map((opt) => (
             <button
@@ -679,7 +492,7 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
             </button>
           ))}
         </div>
-
+ 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
           <button
             onClick={() => {
@@ -691,7 +504,7 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
             <Lightbulb className="w-4 h-4" />
             <span>{showHint ? 'إخفاء التلميح' : 'تلميح 💡'}</span>
           </button>
-
+ 
           {!feedback?.ok ? (
             <button
               onClick={verify}
@@ -716,13 +529,13 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
             </button>
           )}
         </div>
-
+ 
         {showHint && (
           <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-xs font-bold text-amber-950 dark:text-amber-200">
             💡 {question.hint}
           </div>
         )}
-
+ 
         {feedback && (
           <div
             className={`p-4 rounded-2xl border-2 flex items-start gap-3 ${
@@ -757,23 +570,23 @@ const FactsSection: React.FC<SectionProps> = ({ profile, solvedIds, award, isGir
     </div>
   );
 };
-
+ 
 // ============================================================
 // قسم حصن البطل (ترتيب الأذكار والسور القصيرة)
 // ============================================================
-const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
+const HisnSection: React.FC<SectionProps> = ({ content, solvedIds, award, isGirl }) => {
   const { playClick, playPop, playChime, playPointsEarned, playTryAgain } = useSound();
   const [openId, setOpenId] = useState<string | null>(null);
   const [pool, setPool] = useState<string[]>([]);
   const [placed, setPlaced] = useState<string[]>([]);
   const [status, setStatus] = useState<'idle' | 'ok' | 'wrong'>('idle');
   const [gained, setGained] = useState(0);
-
-  const item = HISN.find((h) => h.id === openId) || null;
+ 
+  const item = content.hisn.find((h) => h.id === openId) || null;
   const isDone = (id: string) => solvedIds.includes(`isl-dhikr-${id}`);
-
+ 
   const start = (id: string) => {
-    const it = HISN.find((h) => h.id === id);
+    const it = content.hisn.find((h) => h.id === id);
     if (!it) return;
     playClick();
     setOpenId(id);
@@ -782,7 +595,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
     setStatus('idle');
     setGained(0);
   };
-
+ 
   const check = (arr: string[]) => {
     if (!item) return;
     if (arr.join('|') === item.parts.join('|')) {
@@ -797,7 +610,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
       setStatus('wrong');
     }
   };
-
+ 
   const pick = (idx: number) => {
     if (status !== 'idle') return;
     playPop();
@@ -808,14 +621,14 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
     setPlaced(newPlaced);
     if (newPool.length === 0) check(newPlaced);
   };
-
+ 
   const unplace = (idx: number) => {
     if (status !== 'idle') return;
     playPop();
     setPool([...pool, placed[idx]]);
     setPlaced(placed.filter((_, i) => i !== idx));
   };
-
+ 
   const retry = () => {
     if (!item) return;
     playClick();
@@ -823,7 +636,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
     setPlaced([]);
     setStatus('idle');
   };
-
+ 
   if (!item) {
     return (
       <div className="space-y-3">
@@ -831,7 +644,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
           رتّب كلمات الدعاء أو السورة بالترتيب الصحيح لتحفظها وتحصل على النقاط.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {HISN.map((h) => (
+          {content.hisn.map((h) => (
             <button
               key={h.id}
               onClick={() => start(h.id)}
@@ -849,7 +662,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
       </div>
     );
   }
-
+ 
   return (
     <div className="space-y-4">
       <button
@@ -862,7 +675,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
         <ArrowRight className="w-3.5 h-3.5" />
         <span>الرجوع إلى الأذكار</span>
       </button>
-
+ 
       <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border-2 border-slate-200 dark:border-slate-700 space-y-4">
         <div className="flex items-center gap-3">
           <span className="text-4xl">{item.icon}</span>
@@ -871,7 +684,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
             <p className="text-xs font-bold text-slate-600 dark:text-slate-400">{item.when}</p>
           </div>
         </div>
-
+ 
         <div>
           <p className="text-[11px] font-black text-slate-500 dark:text-slate-400 mb-1.5">ترتيبك:</p>
           <div className="min-h-[3.5rem] p-3 rounded-2xl border-2 border-dashed border-teal-300 dark:border-teal-700 bg-white dark:bg-slate-900 flex flex-wrap gap-2">
@@ -889,7 +702,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
             ))}
           </div>
         </div>
-
+ 
         {pool.length > 0 && (
           <div className="flex flex-wrap gap-2 justify-center">
             {pool.map((p, i) => (
@@ -903,7 +716,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
             ))}
           </div>
         )}
-
+ 
         {status === 'ok' && (
           <div className="p-4 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 border-2 border-emerald-400 text-emerald-950 dark:text-emerald-100 space-y-1.5">
             <p className="font-black text-sm">
@@ -923,7 +736,7 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
             </button>
           </div>
         )}
-
+ 
         {status === 'wrong' && (
           <div className="p-4 rounded-2xl bg-rose-100 dark:bg-rose-950/80 border-2 border-rose-400 text-rose-950 dark:text-rose-100 flex items-center justify-between gap-3">
             <p className="font-black text-sm">الترتيب غير صحيح، حاول مرة أخرى.</p>
@@ -940,12 +753,12 @@ const HisnSection: React.FC<SectionProps> = ({ solvedIds, award, isGirl }) => {
     </div>
   );
 };
-
+ 
 // ============================================================
 // المكوّن الرئيسي
 // ============================================================
 type CornerTab = 'stories' | 'manners' | 'facts' | 'hisn';
-
+ 
 export const IslamicCorner: React.FC<IslamicCornerProps> = ({
   activeProfile,
   onUpdateProfile,
@@ -955,22 +768,34 @@ export const IslamicCorner: React.FC<IslamicCornerProps> = ({
   const { playClick, playBadgeUnlock } = useSound();
   const [tab, setTab] = useState<CornerTab>('stories');
   const [unlockedBadge, setUnlockedBadge] = useState<string | null>(null);
-
+  const [content, setContent] = useState<IslamicContent>(DEFAULT_CONTENT);
+ 
+  // تحميل المحتوى من الداتابيز (لو الجدول فاضي يفضل المحتوى الافتراضي)
+  useEffect(() => {
+    let cancelled = false;
+    fetchIslamicContent().then((res) => {
+      if (!cancelled && res) setContent(res.content);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+ 
   const solvedIds = activeProfile.solvedBankQuestionIds || [];
-
-  const storiesDone = STORIES.filter((s) => solvedIds.includes(`isl-story-${s.id}`)).length;
-  const mannersDone = MANNERS.filter((m) => solvedIds.includes(`isl-manners-${m.id}`)).length;
-  const hisnDone = HISN.filter((h) => solvedIds.includes(`isl-dhikr-${h.id}`)).length;
-
+ 
+  const storiesDone = content.stories.filter((s) => solvedIds.includes(`isl-story-${s.id}`)).length;
+  const mannersDone = content.manners.filter((m) => solvedIds.includes(`isl-manners-${m.id}`)).length;
+  const hisnDone = content.hisn.filter((h) => solvedIds.includes(`isl-dhikr-${h.id}`)).length;
+ 
   // منح النقاط مرة واحدة فقط لكل عنصر، وفحص الأوسمة
   const award = (itemId: string, points: number): AwardResult => {
     if (solvedIds.includes(itemId)) return { gained: 0, badge: null };
-
+ 
     const newIds = [...solvedIds, itemId];
     const badges = [...(activeProfile.unlockedBadgeIds || [])];
     let bonus = 0;
     let badgeName: string | null = null;
-
+ 
     for (const rule of BADGE_RULES) {
       const count = newIds.filter((id) => id.startsWith(rule.prefix)).length;
       if (!badges.includes(rule.id) && count >= rule.needed) {
@@ -979,14 +804,14 @@ export const IslamicCorner: React.FC<IslamicCornerProps> = ({
         badgeName = rule.name;
       }
     }
-
+ 
     onUpdateProfile({
       ...activeProfile,
       points: activeProfile.points + points + bonus,
       unlockedBadgeIds: badges,
       solvedBankQuestionIds: newIds,
     });
-
+ 
     if (badgeName) {
       setUnlockedBadge(badgeName);
       setTimeout(() => {
@@ -994,23 +819,28 @@ export const IslamicCorner: React.FC<IslamicCornerProps> = ({
         fireBadgeUnlockConfetti();
       }, 500);
     }
-
+ 
     return { gained: points + bonus, badge: badgeName };
   };
-
+ 
   const tabs: { id: CornerTab; label: string; icon: string }[] = [
     { id: 'stories', label: 'قصص الأنبياء', icon: '📖' },
     { id: 'manners', label: 'الأخلاق والآداب', icon: '🌟' },
     { id: 'facts', label: 'هل تعلم؟', icon: '🧠' },
     { id: 'hisn', label: 'حصن البطل', icon: '🛡️' },
   ];
-
-  const sectionProps: SectionProps = { profile: activeProfile, solvedIds, isGirl, award };
-
+ 
+  const isTabEmpty =
+    (tab === 'stories' && content.stories.length === 0) ||
+    (tab === 'manners' && content.manners.length === 0) ||
+    (tab === 'hisn' && content.hisn.length === 0);
+ 
+  const sectionProps: SectionProps = { content, profile: activeProfile, solvedIds, isGirl, award };
+ 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-8 border-2 border-teal-200 dark:border-teal-800/60 shadow-lg relative overflow-hidden space-y-5">
       <div className="absolute top-0 right-0 w-64 h-64 bg-teal-400/10 rounded-full blur-3xl pointer-events-none" />
-
+ 
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-teal-100 dark:border-slate-800 pb-5">
         <div className="flex items-center gap-3">
@@ -1024,23 +854,23 @@ export const IslamicCorner: React.FC<IslamicCornerProps> = ({
             </p>
           </div>
         </div>
-
+ 
         <div className="grid grid-cols-3 gap-2 text-center shrink-0">
           <div className="px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-slate-800 border border-teal-200 dark:border-teal-800">
             <div className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400">القصص</div>
-            <div className="text-sm font-black text-slate-900 dark:text-white">{storiesDone}/{STORIES.length}</div>
+            <div className="text-sm font-black text-slate-900 dark:text-white">{storiesDone}/{content.stories.length}</div>
           </div>
           <div className="px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-slate-800 border border-teal-200 dark:border-teal-800">
             <div className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400">المواقف</div>
-            <div className="text-sm font-black text-slate-900 dark:text-white">{mannersDone}/{MANNERS.length}</div>
+            <div className="text-sm font-black text-slate-900 dark:text-white">{mannersDone}/{content.manners.length}</div>
           </div>
           <div className="px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-slate-800 border border-teal-200 dark:border-teal-800">
             <div className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400">الأذكار</div>
-            <div className="text-sm font-black text-slate-900 dark:text-white">{hisnDone}/{HISN.length}</div>
+            <div className="text-sm font-black text-slate-900 dark:text-white">{hisnDone}/{content.hisn.length}</div>
           </div>
         </div>
       </div>
-
+ 
       {/* Sub tabs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {tabs.map((t) => (
@@ -1061,13 +891,18 @@ export const IslamicCorner: React.FC<IslamicCornerProps> = ({
           </button>
         ))}
       </div>
-
+ 
       {/* Active section */}
-      {tab === 'stories' && <StorySection {...sectionProps} />}
-      {tab === 'manners' && <MannersSection {...sectionProps} />}
+      {isTabEmpty && (
+        <p className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center py-8">
+          لا يوجد محتوى في هذا القسم حالياً، وسيضيف مدير المنصة محتوى جديداً قريباً.
+        </p>
+      )}
+      {!isTabEmpty && tab === 'stories' && <StorySection {...sectionProps} />}
+      {!isTabEmpty && tab === 'manners' && <MannersSection {...sectionProps} />}
       {tab === 'facts' && <FactsSection {...sectionProps} />}
-      {tab === 'hisn' && <HisnSection {...sectionProps} />}
-
+      {!isTabEmpty && tab === 'hisn' && <HisnSection {...sectionProps} />}
+ 
       {/* Unlocked badge banner */}
       {unlockedBadge && (
         <div className="bg-amber-100 dark:bg-amber-950/80 border-2 border-amber-400 rounded-2xl p-4 flex items-center justify-between gap-3 text-right">
