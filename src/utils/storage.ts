@@ -147,6 +147,33 @@ export const INITIAL_BADGES: Badge[] = [
     points: 35,
     requirement: 'إتمام تجارب النباتات ودورة المطر والبيئة',
   },
+  {
+    id: 'little_sage',
+    name: 'الحكيم الصغير',
+    description: 'إتمام 3 قصص من قصص الأنبياء والإجابة عن أسئلتها بنجاح!',
+    icon: '📖',
+    color: 'from-emerald-400 to-teal-500',
+    points: 20,
+    requirement: 'إتمام 3 قصص من قصص الأنبياء',
+  },
+  {
+    id: 'good_manners',
+    name: 'صاحب الخلق الحسن',
+    description: 'اختيار السلوك الصحيح في 5 مواقف من الآداب الإسلامية!',
+    icon: '🌟',
+    color: 'from-amber-400 to-yellow-500',
+    points: 20,
+    requirement: 'حل 5 مواقف من الأخلاق والآداب',
+  },
+  {
+    id: 'fortress_hero',
+    name: 'حصن البطل',
+    description: 'ترتيب 3 أدعية أو سور قصيرة بنجاح وحفظها!',
+    icon: '🛡️',
+    color: 'from-sky-400 to-indigo-500',
+    points: 25,
+    requirement: 'ترتيب 3 أذكار صحيحة في حصن البطل',
+  },
 ];
 
 export const DAILY_CHALLENGES: DailyChallenge[] = [

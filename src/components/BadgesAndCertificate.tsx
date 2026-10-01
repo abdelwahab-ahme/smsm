@@ -32,7 +32,8 @@ import {
 interface BadgesAndCertificateProps {
   activeProfile: UserProfile;
 }
-
+// الأوسمة الخاصة بركن الإسلاميات (تظهر للطفل المسلم فقط)
+const ISLAMIC_BADGE_IDS = ['little_sage', 'good_manners', 'fortress_hero'];
 export const BadgesAndCertificate: React.FC<BadgesAndCertificateProps> = ({ activeProfile }) => {
   const certificateRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +60,13 @@ export const BadgesAndCertificate: React.FC<BadgesAndCertificateProps> = ({ acti
   // Active milestone details
   const activeMilestone = CERTIFICATE_MILESTONES.find((m) => m.id === activeMilestoneId) || CERTIFICATE_MILESTONES[0];
 
-  const unlockedBadgeObjects = INITIAL_BADGES.filter((b) =>
+  // الطفل غير المسلم ما يشوفش الأوسمة الإسلامية
+  const visibleBadges =
+    activeProfile.religion === 'muslim'
+      ? INITIAL_BADGES
+      : INITIAL_BADGES.filter((b) => !ISLAMIC_BADGE_IDS.includes(b.id));
+
+  const unlockedBadgeObjects = visibleBadges.filter((b) =>
     activeProfile.unlockedBadgeIds.includes(b.id)
   );
 
@@ -275,7 +282,7 @@ export const BadgesAndCertificate: React.FC<BadgesAndCertificateProps> = ({ acti
             <div className="text-center">
               <p className="text-xs font-black text-slate-800">الأوسمة المكتسبة</p>
               <p className="text-3xl font-black text-amber-700">
-                {unlockedBadgeObjects.length} / {INITIAL_BADGES.length}
+              {unlockedBadgeObjects.length} / {visibleBadges.length}
               </p>
             </div>
             <div className="w-px h-10 bg-slate-200" />
@@ -1009,15 +1016,15 @@ export const BadgesAndCertificate: React.FC<BadgesAndCertificateProps> = ({ acti
         <div className="flex items-center justify-between">
           <h2 className="text-xl sm:text-2xl font-black text-slate-950 dark:text-white flex items-center gap-2">
             <Trophy className="w-6 h-6 text-amber-600 dark:text-amber-400" />
-            <span>منظومة الـ 13 وساماً المتميزة</span>
+            <span>منظومة الـ {visibleBadges.length} وساماً المتميزة</span>
           </h2>
           <span className="text-xs sm:text-sm font-black text-slate-700 dark:text-slate-300 bg-amber-100 dark:bg-amber-950/70 px-3 py-1 rounded-full border border-amber-300 dark:border-amber-700/80">
-            {unlockedBadgeObjects.length} من {INITIAL_BADGES.length} مفتوح
+          {unlockedBadgeObjects.length} من {visibleBadges.length} مفتوح
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {INITIAL_BADGES.map((badge) => {
+        {visibleBadges.map((badge) => {
             const isUnlocked = activeProfile.unlockedBadgeIds.includes(badge.id);
 
             return (

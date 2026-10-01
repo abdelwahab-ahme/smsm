@@ -4,6 +4,7 @@ import { KnowledgeWheel } from './games/KnowledgeWheel';
 import { MathSpeedChallenge } from './games/MathSpeedChallenge';
 import { QuestionBankExplorer } from './games/QuestionBankExplorer';
 import { useSound } from '../context/SoundContext';
+import { IslamicCorner } from './games/IslamicCorner';
 import { 
   Gamepad2, 
   RotateCw, 
@@ -27,11 +28,11 @@ export const GamifiedLearningZone: React.FC<GamifiedLearningZoneProps> = ({
   onUpdateProfile,
   onOpenBadgesTab,
 }) => {
-  const [activeGameTab, setActiveGameTab] = useState<'wheel' | 'speed' | 'bank'>('wheel');
+  const [activeGameTab, setActiveGameTab] = useState<'wheel' | 'speed' | 'islamic' | 'bank'>('wheel');
   const { playClick } = useSound();
   const isGirl = activeProfile.gender === 'girl';
 
-  const solvedBankCount = activeProfile.solvedBankQuestionIds?.length || 0;
+  const solvedBankCount = (activeProfile.solvedBankQuestionIds || []).filter((id) => !id.startsWith('isl-')).length;
   const highScore = activeProfile.mathSpeedHighScore || 0;
   const wheelSpins = activeProfile.wheelSpinsCount || 0;
 
@@ -112,7 +113,22 @@ export const GamifiedLearningZone: React.FC<GamifiedLearningZoneProps> = ({
           <Zap className="w-4 h-4 fill-amber-500" />
           <span>تحدي السرعة الحسابية ⏱️</span>
         </button>
-
+        {activeProfile.religion === 'muslim' && (
+          <button
+            onClick={() => {
+              playClick();
+              setActiveGameTab('islamic');
+            }}
+            className={`flex-1 min-w-[140px] py-3 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeGameTab === 'islamic'
+                ? 'bg-linear-to-r from-teal-600 to-emerald-600 text-white shadow-md'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <span>🌙</span>
+            <span>ركن الإسلاميات</span>
+          </button>
+        )}
         <button
           onClick={() => {
             playClick();
@@ -145,7 +161,13 @@ export const GamifiedLearningZone: React.FC<GamifiedLearningZoneProps> = ({
           onOpenBadgesTab={onOpenBadgesTab}
         />
       )}
-
+      {activeGameTab === 'islamic' && activeProfile.religion === 'muslim' && (
+        <IslamicCorner
+          activeProfile={activeProfile}
+          onUpdateProfile={onUpdateProfile}
+          onOpenBadgesTab={onOpenBadgesTab}
+        />
+      )}
       {activeGameTab === 'bank' && (
         <QuestionBankExplorer
           activeProfile={activeProfile}
